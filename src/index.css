@@ -1,0 +1,134 @@
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=Inter:wght@300;400;500;600&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 40 30% 97%;
+    --foreground: 220 25% 12%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 220 25% 12%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 220 25% 12%;
+
+    --primary: 250 85% 60%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 40 25% 92%;
+    --secondary-foreground: 220 20% 25%;
+
+    --muted: 40 15% 94%;
+    --muted-foreground: 220 10% 46%;
+
+    --accent: 340 82% 62%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 220 10% 90%;
+    --input: 40 15% 94%;
+    --ring: 250 85% 60%;
+
+    --radius: 1rem;
+
+    --warm: 30 90% 62%;
+    --warm-foreground: 0 0% 100%;
+
+    --sidebar-background: 0 0% 100%;
+    --sidebar-foreground: 220 25% 12%;
+    --sidebar-primary: 250 85% 60%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 40 25% 92%;
+    --sidebar-accent-foreground: 220 25% 12%;
+    --sidebar-border: 220 10% 90%;
+    --sidebar-ring: 250 85% 60%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-family: 'Inter', sans-serif;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'Outfit', sans-serif;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+}
+
+@layer utilities {
+  .text-gradient {
+    @apply bg-clip-text text-transparent;
+    background-image: linear-gradient(135deg, hsl(250 85% 60%), hsl(340 82% 62%), hsl(30 90% 62%));
+  }
+
+  .text-gradient-soft {
+    @apply bg-clip-text text-transparent;
+    background-image: linear-gradient(135deg, hsl(250 85% 60%), hsl(280 70% 65%));
+  }
+
+  .section-padding {
+    @apply py-20 sm:py-28 md:py-36 px-5 sm:px-6 md:px-8;
+  }
+
+  /* Blob backgrounds */
+  .blob-primary {
+    background: radial-gradient(circle, hsl(250 85% 60% / 0.08) 0%, transparent 70%);
+  }
+
+  .blob-accent {
+    background: radial-gradient(circle, hsl(340 82% 62% / 0.06) 0%, transparent 70%);
+  }
+
+  .blob-warm {
+    background: radial-gradient(circle, hsl(30 90% 62% / 0.06) 0%, transparent 70%);
+  }
+
+  /* Smooth card */
+  .smooth-card {
+    @apply bg-card rounded-3xl border border-border/60;
+    box-shadow: 0 1px 3px hsl(220 25% 12% / 0.03), 0 8px 30px hsl(220 25% 12% / 0.04);
+    transition: all 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  .smooth-card:hover {
+    box-shadow: 0 4px 12px hsl(250 85% 60% / 0.08), 0 20px 50px hsl(220 25% 12% / 0.08);
+    transform: translateY(-4px);
+  }
+
+  /* Flowing section dividers */
+  .section-flow {
+    position: relative;
+  }
+
+  .section-flow::after {
+    content: '';
+    position: absolute;
+    bottom: -60px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 120%;
+    height: 120px;
+    background: inherit;
+    border-radius: 0 0 50% 50% / 0 0 100% 100%;
+    z-index: 1;
+  }
+
+  /* Pill badge */
+  .pill {
+    @apply inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full text-xs font-medium tracking-wide uppercase;
+  }
+}
