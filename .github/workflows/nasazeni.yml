@@ -4,8 +4,13 @@ name: Nasazení na Cloudflare
 on:
   push:
     branches: [main]
-    paths: ["web/**", ".github/workflows/nasazeni.yml"]
+    paths: ["web/**", "nastroje/**", ".github/workflows/nasazeni.yml"]
   workflow_dispatch:
+    inputs:
+      vynutit:
+        description: "Nasadit i tak (přepíše nasazení zvenku, povolí velké zmenšení webu)"
+        type: boolean
+        default: false
 
 concurrency:
   group: nasazeni-produkce
@@ -13,6 +18,12 @@ concurrency:
 
 permissions:
   contents: read
+  issues: write
+
+env:
+  # Do Cloudflare jen přes bránu: klíč umí číst a nasadit jen projekt modernikomunikace.
+  CLOUDFLARE_API_BASE_URL: https://mk-web-brana.msantiova.workers.dev/client/v4
+  WRANGLER_SEND_METRICS: "false"
 
 jobs:
   nasadit:
@@ -20,35 +31,57 @@ jobs:
     environment: production
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
 
-      - name: Kontrola obsahu
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.12"
+
+      - name: Nástroje (připnuté verze)
         run: |
-          test -f web/index.html || { echo "web/index.html chybí – nenasazuji"; exit 1; }
-          echo "Souborů k nasazení: $(find web -type f | wc -l)"
+          pip install --require-hashes -r nastroje/requirements.txt
+          npm ci --prefix nastroje --ignore-scripts --no-audit --no-fund
+
+      - name: Kontrola před nasazením
+        id: pred
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.MK_BRANA_KLIC }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          PRED_PUSHEM: ${{ github.event.before }}
+          VYNUTIT: ${{ inputs.vynutit && '1' || '0' }}
+          MK_CHYBA_SOUBOR: ${{ runner.temp }}/chyba.txt
+        run: python nastroje/kontrola_nasazeni.py pred
 
       - name: Nasadit na Cloudflare Pages (produkce)
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.MK_BRANA_KLIC }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           ZPRAVA: ${{ github.event.head_commit.message }}
         run: |
-          npx --yes wrangler@4.151.2 pages deploy web \
+          nastroje/node_modules/.bin/wrangler pages deploy web \
             --project-name=modernikomunikace \
             --branch=main \
             --commit-hash="$GITHUB_SHA" \
             --commit-message="github: $(printf '%s' "${ZPRAVA:-ruční nasazení}" | head -n1 | cut -c1-200)" \
             --commit-dirty=false
 
-      - name: Ověřit, že web odpovídá
-        run: |
-          for i in 1 2 3 4 5 6; do
-            kod=$(curl -s -o /dev/null -w '%{http_code}' https://modernikomunikace.com/)
-            [ "$kod" = "200" ] && { echo "modernikomunikace.com → 200"; exit 0; }
-            sleep 10
-          done
-          echo "modernikomunikace.com nevrací 200 (poslední kód $kod)"; exit 1
+      - name: Ověřit, že doména servíruje tenhle commit
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.MK_BRANA_KLIC }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          ZACATEK: ${{ steps.pred.outputs.zacatek }}
+          MK_CHYBA_SOUBOR: ${{ runner.temp }}/chyba.txt
+        run: python nastroje/kontrola_nasazeni.py po
+
+      - name: Upozornění při chybě
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CHYBA_SOUBOR: ${{ runner.temp }}/chyba.txt
+        run: bash nastroje/upozorneni.sh "Nasazení na Cloudflare selhalo"

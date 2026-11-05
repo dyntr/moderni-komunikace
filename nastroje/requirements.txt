@@ -1,0 +1,2 @@
+blake3==1.0.4 \
+    --hash=sha256:bb2689cbef663d823011eeddec29c23d1c1f773ac867bfa854fb0590771a309d

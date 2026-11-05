@@ -1,5 +1,5 @@
-# Když někdo nasadí web přímo na Cloudflare (např. Karlův blog-auto), tahle úloha
-# stáhne živou verzi zpět do web/ a commitne ji. GitHub tak vždy odpovídá tomu, co je živě.
+# Když někdo nasadí web přímo na Cloudflare (např. Karlův blog-auto) nebo udělá rollback v dashboardu,
+# tahle úloha stáhne živou verzi zpět do web/ a commitne ji. GitHub tak vždy odpovídá tomu, co je živě.
 name: Sync z Cloudflare
 
 on:
@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       vynutit:
-        description: "Stáhnout živou verzi i tehdy, když vznikla z tohoto repa"
+        description: "Stáhnout živou verzi i tehdy, když je main napřed (živý web vyhraje)"
         type: boolean
         default: false
 
@@ -18,6 +18,11 @@ concurrency:
 
 permissions:
   contents: write
+  issues: write
+  actions: write
+
+env:
+  CLOUDFLARE_API_BASE_URL: https://mk-web-brana.msantiova.workers.dev/client/v4
 
 jobs:
   sync:
@@ -25,25 +30,27 @@ jobs:
     environment: production
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.12"
 
-      - run: pip install blake3==1.0.4
+      - run: pip install --require-hashes -r nastroje/requirements.txt
 
-      - name: Stáhnout živou verzi, pokud vznikla mimo GitHub
+      - name: Porovnat živý web s repem a případně stáhnout
         id: sync
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.MK_BRANA_KLIC }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           VYNUTIT: ${{ inputs.vynutit && '1' || '0' }}
+          MK_CHYBA_SOUBOR: ${{ runner.temp }}/chyba.txt
         run: python nastroje/sync_z_cloudflare.py
 
       - name: Commit a push
+        id: push
         if: steps.sync.outputs.zmena == '1'
         env:
           ZPRAVA: ${{ steps.sync.outputs.zprava }}
@@ -52,8 +59,37 @@ jobs:
           git config user.email "mk-sync@users.noreply.github.com"
           git add -A web .cloudflare-posledni-sync
           git commit -m "$ZPRAVA"
-          for i in 1 2 3; do
-            git pull --rebase -X theirs origin main && git push origin HEAD:main && exit 0
-            sleep 5
-          done
+          # Žádný rebase: když se main mezitím pohnul, příští běh (za 10 min) porovná znovu od čerstvého stavu.
+          if git push origin HEAD:main; then
+            echo "ok=1" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::main se mezitím změnil, synchronizuji při dalším běhu"
+          fi
+
+      - name: Přepsané změny z GitHubu
+        if: steps.push.outputs.ok == '1' && steps.sync.outputs.prepsano != ''
+        env:
+          PREPSANO: ${{ steps.sync.outputs.prepsano }}
+          MK_CHYBA_SOUBOR: ${{ runner.temp }}/chyba.txt
+        run: |
+          zprava="Nasazení přímo na Cloudflare přepsalo změny, které přišly přes GitHub: $PREPSANO. Živý web je teď bez nich (repo už odpovídá živému webu). Vrať je z historie (git log -- <soubor>) a pushni znovu; zdroj, ze kterého se nasazuje mimo GitHub, je potřeba aktualizovat."
+          echo "$zprava" >> "$MK_CHYBA_SOUBOR"
+          echo "::error::$zprava"
           exit 1
+
+      - name: Udržet plánovanou úlohu zapnutou
+        # GitHub vypíná plánované workflow po 60 dnech bez aktivity v repu. Jednou denně ho znovu zapneme.
+        if: github.event_name == 'schedule'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "$(date -u +%H)" = "04" ] && [ "$(date -u +%M)" -lt 10 ]; then
+            gh api -X PUT "repos/$GITHUB_REPOSITORY/actions/workflows/sync-z-cloudflare.yml/enable" && echo "workflow obnoveno"
+          fi
+
+      - name: Upozornění při chybě
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CHYBA_SOUBOR: ${{ runner.temp }}/chyba.txt
+        run: bash nastroje/upozorneni.sh "Sync z Cloudflare selhal"
