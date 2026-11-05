@@ -152,18 +152,25 @@ def stav_ziveho(nas, zivy, lokalni):
 
 
 def zaznamy_syncu(hloubka=200):
-    """{id nasazení: (commit, čas synchronizace)} ze všech verzí značky v historii HEAD.
+    """{id nasazení: (commit, čas synchronizace)} z poslední synchronizace každého nasazení v historii HEAD.
 
-    Commit = ten, který řádek značky zapsal POPRVÉ. Revert sync commitu značku vrátí na starší řádek,
-    ten ale ukazuje na svůj původní commit – revert tak nepředstírá, že živě bylo starší nasazení.
+    Klíčem je celý řádek značky (id + čas syncu), commit = ten, který ten řádek zapsal POPRVÉ:
+      * revert sync commitu vrátí starší řádek, ten ale ukazuje na svůj původní commit – revert tak
+        nepředstírá, že živě bylo starší nasazení;
+      * když sync totéž nasazení zapíše znovu (po rollbacku na něj), má nový řádek s novým časem
+        a platí ten nejnovější.
     """
-    vysledek = {}
+    radky = {}  # řádek -> (commit, id, čas)
     commity = subprocess.run(["git", "log", f"-{hloubka}", "--format=%H", "--", ZNACKA], capture_output=True, text=True).stdout.split()
-    for c in commity:  # od nejnovějšího → poslední zápis je nejstarší výskyt
+    for c in commity:  # od nejnovějšího → poslední zápis je nejstarší výskyt řádku
         r = subprocess.run(["git", "show", f"{c}:{ZNACKA}"], capture_output=True, text=True)
         casti = (r.stdout.split() + ["", "", "", ""])[:4] if r.returncode == 0 else []
         if casti and casti[0]:
-            vysledek[casti[0]] = (c, casti[3])
+            radky[" ".join(casti)] = (c, casti[0], casti[3])
+    vysledek = {}
+    for c, nid, cas in radky.values():
+        if nid not in vysledek or cas > vysledek[nid][1]:
+            vysledek[nid] = (c, cas)
     return vysledek
 
 
