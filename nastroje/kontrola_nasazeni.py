@@ -4,7 +4,7 @@
           a ještě není v repu; a nenasadíme podezřele prázdný web.
   po    – po nasazení: doména opravdu servíruje tenhle commit.
 """
-import hashlib, os, sys, time, urllib.request
+import hashlib, os, re, sys, time, urllib.request
 from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.dirname(__file__))
@@ -37,24 +37,49 @@ def pred():
             "Pokud je to záměr, spusť workflow ručně se zaškrtnutým „vynutit“."
         )
 
-    if lokalni == zivy:
+    stav = cf.stav_ziveho(nas, zivy, lokalni)
+    if stav == "stejne":
         print("obsah je stejný jako živý web – nasazení jen zapíše nový commit")
         return
-
-    zname = (
-        cf.je_predek(commit)
-        or nas["id"] == cf.znacka()[0]
-        or (PRED and set(PRED) != {"0"} and cf.manifest_commitu(PRED) == zivy)
-    )
-    if zname or VYNUTIT:
-        print(f"živé nasazení {nas['id'][:8]} je v repu – nasazuji")
+    if stav == "nase":
+        print(f"živé nasazení {nas['id'][:8]} je v historii main – nasazuji")
         return
+    if PRED and set(PRED) != {"0"} and cf.manifest_commitu(PRED) == zivy:
+        print("živý web = main před tímto pushem – nasazuji")
+        return
+    if VYNUTIT:
+        print(f"vynuceno: přepisuji živé nasazení {nas['id'][:8]} ({stav})")
+        return
+    zprava = ((nas.get("deployment_trigger") or {}).get("metadata") or {}).get("commit_message", "")[:80]
+    if stav == "rollback":
+        cf.chyba(
+            f"Na Cloudflare je rollback na starší nasazení ({nas['id'][:8]}, „{zprava}“). Nenasazuji, "
+            "jinak bych vrátil verzi, kterou někdo vědomě stáhl. Sync z Cloudflare ho do 10 min zapíše do repa; "
+            "pak `git pull`, oprav, co je potřeba, a pushni znovu. Když rollback už neplatí, spusť nasazení ručně s „vynutit“."
+        )
     cf.chyba(
-        f"Na Cloudflare je nasazení zvenku ({nas['id'][:8]}, {nas['created_on'][:16]}, "
-        f"„{((nas.get('deployment_trigger') or {}).get('metadata') or {}).get('commit_message', '')[:80]}“), "
+        f"Na Cloudflare je nasazení zvenku ({nas['id'][:8]}, {nas['created_on'][:16]}, „{zprava}“), "
         "které ještě není v repu. Nenasazuji, jinak by se přepsalo. Počkej na Sync z Cloudflare "
         "(do 10 min, nebo ho spusť ručně), pak `git pull` a pushni znovu."
     )
+
+
+EMAIL_ODKAZ = re.compile(rb'href="/cdn-cgi/l/email-protection#([0-9a-f]+)"')
+EMAIL_TEXT = re.compile(rb'<span class="__cf_email__" data-cfemail="([0-9a-f]+)">\[email&#160;protected\]</span>')
+EMAIL_SKRIPT = re.compile(rb'<script data-cfasync="false" src="/cdn-cgi/scripts/[^"]+/cloudflare-static/email-decode\.min\.js"></script>')
+
+
+def _dekoduj(hexa):
+    b = bytes.fromhex(hexa.decode())
+    return bytes(x ^ b[0] for x in b[1:])
+
+
+def bez_ochrany_emailu(html: bytes) -> bytes:
+    """Na doméně je zapnutá Email Address Obfuscation: Cloudflare přepíše mailto: a e-maily v textu
+    a přidá dekódovací skript. Tohle to vrátí zpátky, aby šlo porovnat bajt po bajtu s web/index.html."""
+    html = EMAIL_ODKAZ.sub(lambda m: b'href="mailto:' + _dekoduj(m.group(1)) + b'"', html)
+    html = EMAIL_TEXT.sub(lambda m: _dekoduj(m.group(1)), html)
+    return EMAIL_SKRIPT.sub(b"", html)
 
 
 def po():
@@ -79,7 +104,7 @@ def po():
             )
             with urllib.request.urlopen(req, timeout=30) as r:
                 kod, telo = r.status, r.read()
-            if kod == 200 and hashlib.sha256(telo).hexdigest() == ocekavany:
+            if kod == 200 and hashlib.sha256(bez_ochrany_emailu(telo)).hexdigest() == ocekavany:
                 print("modernikomunikace.com → 200 a servíruje přesně web/index.html z tohoto commitu")
                 break
         except Exception as e:  # noqa: BLE001
@@ -89,12 +114,13 @@ def po():
         cf.chyba("modernikomunikace.com nevrací 200 s obsahem z tohoto commitu")
 
     # Někdo mohl nasadit přímo na Cloudflare během našeho nasazení – to bychom právě přepsali.
+    # Naše nasazení je jediné s tímto commitem (souběh dvou nasazení z GitHubu hlídá concurrency).
     od = os.environ.get("ZACATEK", "")
     if od:
         cizi = [
             d for d in cf.api("/deployments?env=production&per_page=10")
-            if d["created_on"] >= od and d.get("latest_stage", {}).get("status") == "success"
-            and cf.commit_nasazeni(d) != SHA and not cf.je_predek(cf.commit_nasazeni(d))
+            if d["created_on"] >= od and (d.get("latest_stage") or {}).get("status") == "success"
+            and d["id"] != nas["id"]
         ]
         if cizi:
             cf.chyba(

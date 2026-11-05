@@ -16,8 +16,12 @@ GitHub tedy vždy odpovídá tomu, co je živě, a odsud se nasazuje.
 
 - **Nasazení nepřepíše cizí nasazení.** Když je na Cloudflare něco, co přišlo zvenku a ještě není v repu,
   nasazení z GitHubu se zastaví. Počkej na sync (do 10 min, nebo ho spusť ručně), `git pull`, pushni znovu.
-- **Sync nepřepíše čerstvý push.** Když je `main` napřed a nasazení teprve běží, sync čeká.
-  Když je napřed déle než 20 minut, ohlásí, že nasazení asi selhalo.
+  Za „cizí“ se bere všechno, co neodpovídá obsahu některého commitu v `main`, tedy i nasazení z klonu
+  s necommitnutými změnami.
+- **Rollback v dashboardu platí.** Když na Cloudflare někdo vrátí starší nasazení, push ho nepřepíše,
+  sync ho zapíše do repa. Kdo rollback ruší, spustí nasazení ručně s „vynutit“.
+- **Sync nepřepíše čerstvý push.** Když je `main` napřed a nasazení teprve běží, sync čeká. Když nasazení
+  doběhlo před víc než 20 minutami a živě je pořád starší verze, ohlásí to.
 - **Přepsané změny se hlásí.** Když přímé nasazení na Cloudflare přepíše soubory, které mezitím někdo
   změnil přes GitHub (typicky blog-auto ze staršího zdrojáku), sync je zapíše, ale založí issue se seznamem souborů.
 - **Žádné zmenšení webu omylem.** Nasazení, které by web zmenšilo na méně než polovinu souborů, se nespustí

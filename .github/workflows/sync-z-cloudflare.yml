@@ -47,6 +47,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           VYNUTIT: ${{ inputs.vynutit && '1' || '0' }}
           MK_CHYBA_SOUBOR: ${{ runner.temp }}/chyba.txt
+          GH_TOKEN: ${{ github.token }}
         run: python nastroje/sync_z_cloudflare.py
 
       - name: Commit a push
@@ -54,6 +55,7 @@ jobs:
         if: steps.sync.outputs.zmena == '1'
         env:
           ZPRAVA: ${{ steps.sync.outputs.zprava }}
+          MK_CHYBA_SOUBOR: ${{ runner.temp }}/chyba.txt
         run: |
           git config user.name "mk-sync"
           git config user.email "mk-sync@users.noreply.github.com"
@@ -62,33 +64,47 @@ jobs:
           # Žádný rebase: když se main mezitím pohnul, příští běh (za 10 min) porovná znovu od čerstvého stavu.
           if git push origin HEAD:main; then
             echo "ok=1" >> "$GITHUB_OUTPUT"
-          else
-            echo "::warning::main se mezitím změnil, synchronizuji při dalším běhu"
+            exit 0
           fi
-
-      - name: Přepsané změny z GitHubu
-        if: steps.push.outputs.ok == '1' && steps.sync.outputs.prepsano != ''
-        env:
-          PREPSANO: ${{ steps.sync.outputs.prepsano }}
-          MK_CHYBA_SOUBOR: ${{ runner.temp }}/chyba.txt
-        run: |
-          zprava="Nasazení přímo na Cloudflare přepsalo změny, které přišly přes GitHub: $PREPSANO. Živý web je teď bez nich (repo už odpovídá živému webu). Vrať je z historie (git log -- <soubor>) a pushni znovu; zdroj, ze kterého se nasazuje mimo GitHub, je potřeba aktualizovat."
+          git fetch -q origin main
+          if [ "$(git rev-parse FETCH_HEAD)" != "$(git rev-parse HEAD~1)" ]; then
+            echo "::warning::main se mezitím změnil, synchronizuji při dalším běhu"
+            exit 0
+          fi
+          # main se nepohnul, a přesto push neprošel (ochrana větve, práva tokenu…) – to se samo nespraví
+          zprava="Sync nemůže pushnout do main (ochrana větve nebo práva GITHUB_TOKEN). Repo přestalo odpovídat živému webu."
           echo "$zprava" >> "$MK_CHYBA_SOUBOR"
           echo "::error::$zprava"
           exit 1
 
+      - name: Přepsané změny z GitHubu
+        id: prepsano
+        if: steps.push.outputs.ok == '1' && steps.sync.outputs.prepsano != ''
+        env:
+          PREPSANO: ${{ steps.sync.outputs.prepsano }}
+          GH_TOKEN: ${{ github.token }}
+          CHYBA_SOUBOR: ${{ runner.temp }}/prepsano.txt
+        run: |
+          zprava="Nasazení přímo na Cloudflare přepsalo změny, které přišly přes GitHub: $PREPSANO. Živý web je teď bez nich (repo už odpovídá živému webu). Vrať je z historie (git log -- <soubor>) a pushni znovu; zdroj, ze kterého se nasazuje mimo GitHub, je potřeba aktualizovat."
+          echo "$zprava" > "$CHYBA_SOUBOR"
+          echo "::error::$zprava"
+          # Vlastní issue a vždy nový komentář: seznam přepsaných souborů se nesmí ztratit (příští běh už ho nespočítá).
+          bash nastroje/upozorneni.sh "Nasazení na Cloudflare přepsalo změny z GitHubu" vzdy
+          exit 1
+
       - name: Udržet plánovanou úlohu zapnutou
-        # GitHub vypíná plánované workflow po 60 dnech bez aktivity v repu. Jednou denně ho znovu zapneme.
-        if: github.event_name == 'schedule'
+        # GitHub vypíná plánované workflow po 60 dnech bez aktivity v repu. Jednou za den ho znovu zapneme
+        # (v hodině 04 UTC, tj. při několika bězích – plánované běhy mívají zpoždění), i když sync selhává.
+        if: always() && github.event_name == 'schedule'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if [ "$(date -u +%H)" = "04" ] && [ "$(date -u +%M)" -lt 10 ]; then
+          if [ "$(date -u +%H)" = "04" ]; then
             gh api -X PUT "repos/$GITHUB_REPOSITORY/actions/workflows/sync-z-cloudflare.yml/enable" && echo "workflow obnoveno"
           fi
 
       - name: Upozornění při chybě
-        if: failure()
+        if: failure() && steps.prepsano.outcome != 'failure'
         env:
           GH_TOKEN: ${{ github.token }}
           CHYBA_SOUBOR: ${{ runner.temp }}/chyba.txt

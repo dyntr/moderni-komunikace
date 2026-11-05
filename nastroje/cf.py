@@ -54,6 +54,15 @@ def commit_nasazeni(nas):
     return ((nas.get("deployment_trigger") or {}).get("metadata") or {}).get("commit_hash") or ""
 
 
+def novejsi_uspesna(nas, od=""):
+    """Úspěšná produkční nasazení vytvořená po `nas` (a po čase `od`, je-li zadán)."""
+    hranice = max(nas["created_on"], od)
+    return [
+        d for d in api("/deployments?env=production&per_page=10")
+        if d["id"] != nas["id"] and d["created_on"] > hranice and (d.get("latest_stage") or {}).get("status") == "success"
+    ]
+
+
 def manifest_nasazeni(nas_id):
     detail = api(f"/deployments/{nas_id}")
     return detail, detail.get("files") or {}
@@ -120,12 +129,32 @@ def je_predek(commit, cil="HEAD"):
     return subprocess.run(["git", "merge-base", "--is-ancestor", commit, cil], capture_output=True).returncode == 0
 
 
+def stav_ziveho(nas, zivy, lokalni):
+    """Jedno rozhodnutí pro sync i kontrolu před nasazením – podle obsahu, ne podle původu.
+
+      stejne   – živý web = web/ v HEAD
+      nase     – živý web je přesně obsah čistého commitu z historie main (nebo nasazení, které už sync
+                 zapsal do repa) a nic novějšího úspěšně nenaběhlo → repo je napřed, nasadit smíme
+      rollback – totéž, ale existuje novější úspěšné nasazení → někdo v dashboardu vrátil starší verzi
+      zvenku   – cokoli jiného (nasazení z jiného zdroje, z klonu s necommitnutými změnami…)
+    """
+    if zivy == lokalni:
+        return "stejne"
+    zid, _, _, zcas = znacka()
+    if nas["id"] == zid:
+        # sync už toto nasazení zapsal do repa; když po synchronizaci naběhlo něco novějšího
+        # a živé je zase tohle, je to rollback na něj
+        return "rollback" if novejsi_uspesna(nas, zcas) else "nase"
+    commit = commit_nasazeni(nas)
+    if not (je_predek(commit) and manifest_commitu(commit) == zivy):
+        return "zvenku"
+    return "rollback" if novejsi_uspesna(nas) else "nase"
+
+
 def znacka():
-    """(id nasazení, created_on, commit) z poslední synchronizace, nebo prázdné hodnoty."""
-    if not os.path.exists(ZNACKA):
-        return ("", "", "")
-    casti = open(ZNACKA).read().split()
-    return tuple((casti + ["", "", ""])[:3])
+    """(id nasazení, created_on, commit, čas synchronizace) z poslední synchronizace, nebo prázdné hodnoty."""
+    casti = open(ZNACKA).read().split() if os.path.exists(ZNACKA) else []
+    return tuple((casti + ["", "", "", ""])[:4])
 
 
 def vystup(**kv):

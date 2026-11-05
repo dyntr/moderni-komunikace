@@ -1,16 +1,18 @@
 """Když se živý web liší od web/ v main a vzniklo to mimo GitHub, stáhne živou verzi do web/.
 
-Rozhoduje obsah, ne původ:
-  * živý web = web/ v HEAD                     → nic
-  * živé je starší nasazení z tohoto repa a nic
-    novějšího úspěšně nenaběhlo                → repo je napřed, čeká se na nasazení (ne sync)
-  * cokoli jiného (nasazení zvenku, rollback)  → stáhnout, ověřit otisky, nahradit web/
+Rozhoduje obsah, ne původ (cf.stav_ziveho, stejné pravidlo používá kontrola před nasazením):
+  * živý web = web/ v HEAD                          → nic
+  * živě je přesně obsah čistého commitu z main
+    a nic novějšího úspěšně nenaběhlo               → repo je napřed, čeká se na nasazení (ne sync)
+  * cokoli jiného (nasazení zvenku, z klonu
+    s necommitnutými změnami, rollback)             → stáhnout, ověřit otisky, nahradit web/
 
 Každý stažený soubor se ověří proti otisku z manifestu Cloudflare (blake3 jako wrangler).
 Když sync přepíše soubory, které někdo od poslední synchronizace změnil přes GitHub,
 commit proběhne (repo musí odpovídat živému webu), ale úloha skončí chybou a založí upozornění.
 """
-import os, shutil, subprocess, sys, tempfile, time, urllib.error, urllib.parse, urllib.request
+import json, os, shutil, subprocess, sys, tempfile, time, urllib.error, urllib.parse, urllib.request
+from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor
 
 sys.path.insert(0, os.path.dirname(__file__))
@@ -44,7 +46,7 @@ def zmeneno_pres_github():
     """Soubory ve web/, které od poslední synchronizace změnil někdo jiný než sync."""
     base = git("log", f"--author={cf.SYNC_AUTOR}", "-1", "--format=%H").strip()
     rozsah = [f"{base}..HEAD"] if base else ["HEAD"]
-    vystup = git("log", *rozsah, "--format=@@%an", "--name-only", "--", "web/")
+    vystup = git("-c", "core.quotepath=off", "log", *rozsah, "--format=@@%an", "--name-only", "--", "web/")
     soubory, autor = set(), ""
     for radek in vystup.splitlines():
         if radek.startswith("@@"):
@@ -52,6 +54,67 @@ def zmeneno_pres_github():
         elif radek.strip() and autor != cf.SYNC_AUTOR:
             soubory.add("/" + radek.strip()[len("web/"):])
     return soubory
+
+
+def github(cesta):
+    repo, token = os.environ.get("GITHUB_REPOSITORY"), os.environ.get("GH_TOKEN")
+    if not (repo and token):
+        return None
+    req = urllib.request.Request(
+        f"https://api.github.com/repos/{repo}/{cesta}",
+        headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json", "User-Agent": "mk-sync"},
+    )
+    with urllib.request.urlopen(req, timeout=30) as r:
+        return json.load(r)
+
+
+def posledni_nasazeni_z_githubu():
+    """Poslední běh workflow Nasazení na Cloudflare na main (nebo None, když to nejde zjistit)."""
+    d = github("actions/workflows/nasazeni.yml/runs?branch=main&per_page=1")
+    behy = (d or {}).get("workflow_runs") or []
+    return behy[0] if behy else None
+
+
+def cas(t):
+    return datetime.strptime(t[:19], "%Y-%m-%dT%H:%M:%S").replace(tzinfo=timezone.utc)
+
+
+def posledni_push_do_main():
+    try:
+        d = github("activity?ref=refs/heads/main&per_page=1")
+        return cas(d[0]["timestamp"]) if d else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def cekej_na_nasazeni(commit):
+    """Repo je napřed před živým webem. Normálně jen probíhá nasazení – ozvat se, když to tak není."""
+    beh = posledni_nasazeni_z_githubu()
+    if beh is None:
+        print(f"main je napřed před živým webem ({commit[:8]}), čeká se na nasazení – nesynchronizuji")
+        return
+    if beh["status"] != "completed":
+        print(f"nasazení právě běží ({beh['html_url']}) – nesynchronizuji")
+        return
+    if beh["conclusion"] != "success":
+        print(f"::warning::poslední nasazení skončilo „{beh['conclusion']}“ ({beh['html_url']}), "
+              "upozornění založilo samo; živý web zůstává na starší verzi – nesynchronizuji")
+        return
+    # Měří se od pozdějšího z: konce posledního nasazení, posledního pushe do main (čas commitu může být
+    # starý). Když běh pro HEAD ještě nezačal (sekundy po pushi), čeká se dál.
+    od = max(t for t in (cas(beh["updated_at"]), posledni_push_do_main()) if t)
+    minut = (datetime.now(timezone.utc) - od).total_seconds() / 60
+    head = git("rev-parse", "HEAD").strip()
+    if beh["head_sha"] != head and minut <= LIMIT_CEKANI / 60:
+        print(f"nasazení pro {head[:8]} ještě nezačalo – čekám")
+        return
+    if minut > LIMIT_CEKANI / 60:
+        cf.chyba(
+            f"Živý web servíruje starší verzi z historie (commit {commit[:8]}), než je main, i když poslední "
+            f"nasazení z GitHubu proběhlo už před {int(minut)} min. Nejspíš někdo nasadil přímo na Cloudflare "
+            "ze starého klonu. Spusť workflow Nasazení na Cloudflare ručně, vrátí tam main."
+        )
+    print(f"main je napřed před živým webem ({commit[:8]}), nasazení skončilo před {int(minut)} min – čekám")
 
 
 def main():
@@ -67,21 +130,16 @@ def main():
     if zivy == lokalni:
         print(f"živý web ({nid[:8]}) = web/ v main, {len(zivy)} souborů"); cf.vystup(zmena=0); return
 
-    if not VYNUTIT and (cf.je_predek(commit) or nid == cf.znacka()[0]):
-        novejsi = [
-            d for d in cf.api("/deployments?env=production&per_page=10")
-            if d["created_on"] > nas["created_on"] and d.get("latest_stage", {}).get("status") == "success"
-        ]
-        if not novejsi:
-            stari = time.time() - int(git("log", "-1", "--format=%ct").strip())
-            if stari > LIMIT_CEKANI:
-                cf.chyba(
-                    f"main je {int(stari // 60)} min napřed před živým webem (živě je {commit[:8]}), "
-                    "nasazení asi selhalo – zkontroluj workflow Nasazení na Cloudflare"
-                )
-            print(f"main je napřed před živým webem ({commit[:8]}), čeká se na nasazení – nesynchronizuji")
-            cf.vystup(zmena=0); return
+    stav = cf.stav_ziveho(nas, zivy, lokalni)
+    if stav == "nase" and not VYNUTIT:
+        cekej_na_nasazeni(commit)
+        cf.vystup(zmena=0); return
+    if stav == "nase":
+        print("vynuceno: stahuji živou verzi, i když je main napřed")
+    elif stav == "rollback":
         print(f"živé je starší nasazení {nid[:8]}, i když existuje novější → rollback v dashboardu, synchronizuji")
+    else:
+        print(f"živé nasazení {nid[:8]} neodpovídá žádnému commitu v main → nasazení zvenku, synchronizuji")
 
     if "/index.html" not in zivy or len(zivy) < 20:
         cf.chyba(f"podezřelé živé nasazení {nid[:8]}: {len(zivy)} souborů – nesynchronizuji")
@@ -116,7 +174,8 @@ def main():
     shutil.rmtree("web")
     shutil.move(tmp, "web")
     with open(cf.ZNACKA, "w") as f:
-        f.write(f"{nid} {nas['created_on']} {commit}\n")
+        cas = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+        f.write(f"{nid} {nas['created_on']} {commit or '-'} {cas}\n")
     meta = (nas.get("deployment_trigger") or {}).get("metadata") or {}
     zprava = f"sync z Cloudflare: {nid[:8]} – {(meta.get('commit_message') or 'přímé nasazení').splitlines()[0][:150]}"
     print(zprava, f"({len(zivy)} souborů ověřeno, {len(rozdil)} změněno)")
