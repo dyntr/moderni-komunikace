@@ -70,7 +70,11 @@ def github(cesta):
 
 def posledni_nasazeni_z_githubu():
     """Poslední běh workflow Nasazení na Cloudflare na main (nebo None, když to nejde zjistit)."""
-    d = github("actions/workflows/nasazeni.yml/runs?branch=main&per_page=1")
+    try:
+        d = github("actions/workflows/nasazeni.yml/runs?branch=main&per_page=1")
+    except Exception as e:  # noqa: BLE001
+        print(f"::warning::stav nasazení z GitHubu teď nejde zjistit ({e}), zkusím při dalším běhu")
+        return None
     behy = (d or {}).get("workflow_runs") or []
     return behy[0] if behy else None
 
@@ -96,10 +100,6 @@ def cekej_na_nasazeni(commit):
     if beh["status"] != "completed":
         print(f"nasazení právě běží ({beh['html_url']}) – nesynchronizuji")
         return
-    if beh["conclusion"] != "success":
-        print(f"::warning::poslední nasazení skončilo „{beh['conclusion']}“ ({beh['html_url']}), "
-              "upozornění založilo samo; živý web zůstává na starší verzi – nesynchronizuji")
-        return
     # Měří se od pozdějšího z: konce posledního nasazení, posledního pushe do main (čas commitu může být
     # starý). Když běh pro HEAD ještě nezačal (sekundy po pushi), čeká se dál.
     od = max(t for t in (cas(beh["updated_at"]), posledni_push_do_main()) if t)
@@ -109,10 +109,13 @@ def cekej_na_nasazeni(commit):
         print(f"nasazení pro {head[:8]} ještě nezačalo – čekám")
         return
     if minut > LIMIT_CEKANI / 60:
+        if beh["conclusion"] != "success":
+            duvod = f"poslední nasazení z GitHubu skončilo „{beh['conclusion']}“ ({beh['html_url']})"
+        else:
+            duvod = "poslední nasazení z GitHubu proběhlo, ale živě je pak zase starší verze (někdo nasadil ze starého klonu?)"
         cf.chyba(
-            f"Živý web servíruje starší verzi z historie (commit {commit[:8]}), než je main, i když poslední "
-            f"nasazení z GitHubu proběhlo už před {int(minut)} min. Nejspíš někdo nasadil přímo na Cloudflare "
-            "ze starého klonu. Spusť workflow Nasazení na Cloudflare ručně, vrátí tam main."
+            f"Živý web je {int(minut)} min za main: servíruje starší commit {commit[:8]}, main je {head[:8]}; {duvod}. "
+            "Spusť workflow Nasazení na Cloudflare ručně, nasadí tam main."
         )
     print(f"main je napřed před živým webem ({commit[:8]}), nasazení skončilo před {int(minut)} min – čekám")
 
@@ -134,6 +137,13 @@ def main():
     if stav == "nase" and not VYNUTIT:
         cekej_na_nasazeni(commit)
         cf.vystup(zmena=0); return
+    if stav == "rollback" and not VYNUTIT:
+        # „Rollback“ vypadá stejně jako chvíle, kdy nasazení z GitHubu právě doběhlo mezi dvěma dotazy na API.
+        # Stahujeme jen tehdy, když nasazení z GitHubu neběží a živé je pořád totéž nasazení.
+        beh = posledni_nasazeni_z_githubu()
+        if beh is None or beh["status"] != "completed" or (cf.zive() or {}).get("id") != nid:
+            print("vypadá to na rollback, ale nasazení z GitHubu běží nebo se živý web právě změnil – zkusím při dalším běhu")
+            cf.vystup(zmena=0); return
     if stav == "nase":
         print("vynuceno: stahuji živou verzi, i když je main napřed")
     elif stav == "rollback":
@@ -169,7 +179,9 @@ def main():
         (shutil.copytree if os.path.isdir(zdroj) else shutil.copy2)(zdroj, cil)
 
     rozdil = {c for c in set(zivy) | set(lokalni) if zivy.get(c) != lokalni.get(c)}
-    prepsano = sorted(rozdil & zmeneno_pres_github())
+    # Rollback je vědomý krok, tam se změny z GitHubu vrací záměrně. U nasazení zvenku hlásíme soubory,
+    # které se od poslední synchronizace změnily přes GitHub a teď se liší – ke kontrole, ne k vracení.
+    prepsano = [] if stav == "rollback" else sorted(rozdil & zmeneno_pres_github())
 
     shutil.rmtree("web")
     shutil.move(tmp, "web")

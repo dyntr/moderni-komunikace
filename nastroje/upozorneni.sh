@@ -14,7 +14,7 @@ RADEK="$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --limit 100 --js
 if [ -z "$RADEK" ]; then
   gh issue create --repo "$GITHUB_REPOSITORY" --title "$NAZEV" \
     --body "$(printf '%s\n\nBěh: %s\n\nAž to bude vyřešené, issue zavřete.\n\n@dyntr @KChyska' "$DUVOD" "$BEH")"
-  exit 0
+  exit $?  # neúspěch se musí projevit (záložní upozornění, červený krok)
 fi
 CISLO="${RADEK%% *}"; KDY="${RADEK#* }"
 if [ "$VZDY" = "vzdy" ] || [ $(( $(date -u +%s) - $(date -u -d "$KDY" +%s) )) -gt 43200 ]; then

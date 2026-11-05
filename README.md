@@ -22,8 +22,11 @@ GitHub tedy vždy odpovídá tomu, co je živě, a odsud se nasazuje.
   sync ho zapíše do repa. Kdo rollback ruší, spustí nasazení ručně s „vynutit“.
 - **Sync nepřepíše čerstvý push.** Když je `main` napřed a nasazení teprve běží, sync čeká. Když nasazení
   doběhlo před víc než 20 minutami a živě je pořád starší verze, ohlásí to.
-- **Přepsané změny se hlásí.** Když přímé nasazení na Cloudflare přepíše soubory, které mezitím někdo
-  změnil přes GitHub (typicky blog-auto ze staršího zdrojáku), sync je zapíše, ale založí issue se seznamem souborů.
+- **Souběžné změny se hlásí.** Když přímé nasazení na Cloudflare změní soubory, které se mezitím měnily
+  i přes GitHub (typicky blog-auto), sync je zapíše a založí issue se seznamem souborů ke kontrole.
+  Často je to v pořádku; když se změna z GitHubu ztratila, doplň ji do aktuální verze.
+- **Nasazení počká na cizí nasazení.** Když na Cloudflare zrovna něco nasazuje, push se zastaví,
+  a co přijde během nasazení z GitHubu, kontrola po nasazení ohlásí.
 - **Žádné zmenšení webu omylem.** Nasazení, které by web zmenšilo na méně než polovinu souborů, se nespustí
   (ruční spuštění se zaškrtnutým „vynutit“ to přebije).
 - Každé selhání založí issue a označí @dyntr a @KChyska.

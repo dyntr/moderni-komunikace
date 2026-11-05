@@ -5,7 +5,7 @@
   po    – po nasazení: doména opravdu servíruje tenhle commit.
 """
 import hashlib, os, re, sys, time, urllib.request
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 sys.path.insert(0, os.path.dirname(__file__))
 import cf  # noqa: E402
@@ -23,6 +23,24 @@ def pred():
     spec = cf.specialni_soubory()
     if spec:
         print(f"pozor: ve web/ jsou speciální soubory {spec} – sync z Cloudflare je zpátky stáhnout neumí")
+
+    seznam = cf.api("/deployments?env=production&per_page=10")
+    # Od kdy hlídat cizí nasazení v kontrole „po“: všechno úspěšné, co je novější než to nejnovější, co vidíme teď.
+    # (Při „vynutit“ se přepisuje vědomě – hlídá se jen to, co přijde od teď.)
+    hranice = max([d["created_on"] for d in seznam if (d.get("latest_stage") or {}).get("status") == "success"] or [""])
+    if VYNUTIT:
+        hranice = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
+    cf.vystup(zacatek=hranice)
+    probiha = [
+        d for d in seznam
+        if (d.get("latest_stage") or {}).get("status") in ("idle", "active")
+        and d["created_on"] >= (datetime.now(timezone.utc) - timedelta(minutes=10)).strftime("%Y-%m-%dT%H:%M:%S")
+    ]
+    if probiha and not VYNUTIT:
+        cf.chyba(
+            f"Na Cloudflare právě probíhá jiné nasazení ({probiha[0]['id'][:8]}). Nenasazuji, jinak by se přepsalo. "
+            "Sync z Cloudflare ho do 10 min zapíše do repa, pak `git pull` a pushni znovu."
+        )
 
     nas = cf.zive()
     if not nas:
@@ -65,7 +83,8 @@ def pred():
 
 
 EMAIL_ODKAZ = re.compile(rb'href="/cdn-cgi/l/email-protection#([0-9a-f]+)"')
-EMAIL_TEXT = re.compile(rb'<span class="__cf_email__" data-cfemail="([0-9a-f]+)">\[email&#160;protected\]</span>')
+# e-mail v textu: <span class="__cf_email__" …> uvnitř odkazu, <a href="/cdn-cgi/l/email-protection" class="__cf_email__" …> mimo něj
+EMAIL_TEXT = re.compile(rb'<(span|a)(?: href="/cdn-cgi/l/email-protection")? class="__cf_email__" data-cfemail="([0-9a-f]+)">\[email&#160;protected\]</\1>')
 EMAIL_SKRIPT = re.compile(rb'<script data-cfasync="false" src="/cdn-cgi/scripts/[^"]+/cloudflare-static/email-decode\.min\.js"></script>')
 
 
@@ -78,7 +97,7 @@ def bez_ochrany_emailu(html: bytes) -> bytes:
     """Na doméně je zapnutá Email Address Obfuscation: Cloudflare přepíše mailto: a e-maily v textu
     a přidá dekódovací skript. Tohle to vrátí zpátky, aby šlo porovnat bajt po bajtu s web/index.html."""
     html = EMAIL_ODKAZ.sub(lambda m: b'href="mailto:' + _dekoduj(m.group(1)) + b'"', html)
-    html = EMAIL_TEXT.sub(lambda m: _dekoduj(m.group(1)), html)
+    html = EMAIL_TEXT.sub(lambda m: _dekoduj(m.group(2)), html)
     return EMAIL_SKRIPT.sub(b"", html)
 
 
@@ -96,6 +115,7 @@ def po():
 
     with open("web/index.html", "rb") as f:
         ocekavany = hashlib.sha256(f.read()).hexdigest()
+    shoda_domeny = False
     for _ in range(12):
         try:
             req = urllib.request.Request(
@@ -106,20 +126,34 @@ def po():
                 kod, telo = r.status, r.read()
             if kod == 200 and hashlib.sha256(bez_ochrany_emailu(telo)).hexdigest() == ocekavany:
                 print("modernikomunikace.com → 200 a servíruje přesně web/index.html z tohoto commitu")
+                shoda_domeny = True
                 break
         except Exception as e:  # noqa: BLE001
             print(f"zatím ne: {e}")
         time.sleep(10)
-    else:
-        cf.chyba("modernikomunikace.com nevrací 200 s obsahem z tohoto commitu")
+    if not shoda_domeny:
+        # Doména může HTML upravovat i jinak, než umíme vrátit (další funkce Cloudflare). Rozhodne, zda
+        # samotné nasazení servíruje přesně náš soubor a doména odpovídá 200.
+        try:
+            with urllib.request.urlopen(urllib.request.Request(nas["url"] + "/", headers={"User-Agent": "mk-web-github"}), timeout=30) as r:
+                nasazeni_ok = hashlib.sha256(r.read()).hexdigest() == ocekavany
+            with urllib.request.urlopen(urllib.request.Request("https://modernikomunikace.com/", headers={"User-Agent": "mk-web-github"}), timeout=30) as r:
+                domena_200 = r.status == 200
+        except Exception:  # noqa: BLE001
+            nasazeni_ok = domena_200 = False
+        if not (nasazeni_ok and domena_200):
+            cf.chyba("modernikomunikace.com nevrací 200 s obsahem z tohoto commitu")
+        print("::warning::nasazení servíruje přesně web/index.html a doména vrací 200, ale doména HTML upravuje "
+              "jinak, než kontrola umí vrátit (nová funkce Cloudflare na zóně?) – zkontroluj kontrola_nasazeni.py")
 
     # Někdo mohl nasadit přímo na Cloudflare během našeho nasazení – to bychom právě přepsali.
-    # Naše nasazení je jediné s tímto commitem (souběh dvou nasazení z GitHubu hlídá concurrency).
-    od = os.environ.get("ZACATEK", "")
-    if od:
+    # Hlídá se všechno úspěšné novější než nejnovější úspěšné nasazení, které viděla kontrola „pred“
+    # (i to, které tehdy teprve běželo). Souběh dvou nasazení z GitHubu hlídá concurrency.
+    od = os.environ.get("ZACATEK")
+    if od is not None:
         cizi = [
             d for d in cf.api("/deployments?env=production&per_page=10")
-            if d["created_on"] >= od and (d.get("latest_stage") or {}).get("status") == "success"
+            if d["created_on"] > od and (d.get("latest_stage") or {}).get("status") == "success"
             and d["id"] != nas["id"]
         ]
         if cizi:
@@ -132,5 +166,3 @@ def po():
 
 if __name__ == "__main__":
     {"pred": pred, "po": po}[sys.argv[1]]()
-    if sys.argv[1] == "pred":
-        cf.vystup(zacatek=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S"))

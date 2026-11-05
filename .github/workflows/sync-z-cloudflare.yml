@@ -77,19 +77,21 @@ jobs:
           echo "::error::$zprava"
           exit 1
 
-      - name: Přepsané změny z GitHubu
+      - name: Změny z GitHubu ke kontrole
         id: prepsano
         if: steps.push.outputs.ok == '1' && steps.sync.outputs.prepsano != ''
         env:
           PREPSANO: ${{ steps.sync.outputs.prepsano }}
           GH_TOKEN: ${{ github.token }}
-          CHYBA_SOUBOR: ${{ runner.temp }}/prepsano.txt
+          CHYBA_SOUBOR: ${{ runner.temp }}/chyba.txt
         run: |
-          zprava="Nasazení přímo na Cloudflare přepsalo změny, které přišly přes GitHub: $PREPSANO. Živý web je teď bez nich (repo už odpovídá živému webu). Vrať je z historie (git log -- <soubor>) a pushni znovu; zdroj, ze kterého se nasazuje mimo GitHub, je potřeba aktualizovat."
-          echo "$zprava" > "$CHYBA_SOUBOR"
+          zprava="Nasazení přímo na Cloudflare změnilo soubory, které se od poslední synchronizace měnily i přes GitHub: $PREPSANO. Repo teď odpovídá živému webu. Zkontroluj, jestli se tím neztratila změna z GitHubu (git log -p -- web/<soubor>). Často je to v pořádku (třeba blog-auto přegeneroval index.html z aktuálního main); když se něco ztratilo, doplň to do aktuální verze a pushni."
+          echo "$zprava" >> "$CHYBA_SOUBOR"
           echo "::error::$zprava"
-          # Vlastní issue a vždy nový komentář: seznam přepsaných souborů se nesmí ztratit (příští běh už ho nespočítá).
-          bash nastroje/upozorneni.sh "Nasazení na Cloudflare přepsalo změny z GitHubu" vzdy
+          # Vlastní issue a vždy nový komentář: seznam souborů se nesmí ztratit (příští běh už ho nespočítá).
+          # Když založení issue selže, převezme to obecné upozornění níž.
+          bash nastroje/upozorneni.sh "Nasazení na Cloudflare změnilo soubory i z GitHubu – zkontrolovat" vzdy \
+            && echo "oznameno=1" >> "$GITHUB_OUTPUT"
           exit 1
 
       - name: Udržet plánovanou úlohu zapnutou
@@ -104,7 +106,7 @@ jobs:
           fi
 
       - name: Upozornění při chybě
-        if: failure() && steps.prepsano.outcome != 'failure'
+        if: failure() && steps.prepsano.outputs.oznameno != '1'
         env:
           GH_TOKEN: ${{ github.token }}
           CHYBA_SOUBOR: ${{ runner.temp }}/chyba.txt
