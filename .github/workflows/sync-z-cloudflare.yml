@@ -77,20 +77,35 @@ jobs:
           echo "::error::$zprava"
           exit 1
 
-      - name: Změny z GitHubu ke kontrole
-        id: prepsano
-        if: steps.push.outputs.ok == '1' && steps.sync.outputs.prepsano != ''
+      - name: Nasadit sloučenou verzi
+        # Ve sloučení zůstaly změny z GitHubu, které živě ještě nebyly. Push z GITHUB_TOKEN nasazení
+        # nespustí, proto ho spustíme výslovně (workflow_dispatch tokenem GITHUB_TOKEN povolený je).
+        if: steps.push.outputs.ok == '1' && steps.sync.outputs.nasadit == '1'
         env:
-          PREPSANO: ${{ steps.sync.outputs.prepsano }}
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run nasazeni.yml --repo "$GITHUB_REPOSITORY" --ref main && echo "nasazení spuštěno"
+
+      - name: Konflikty a návraty ke kontrole
+        id: konflikty
+        if: steps.push.outputs.ok == '1' && (steps.sync.outputs.konflikty != '' || steps.sync.outputs.navraty != '')
+        env:
+          KONFLIKTY: ${{ steps.sync.outputs.konflikty }}
+          NAVRATY: ${{ steps.sync.outputs.navraty }}
           GH_TOKEN: ${{ github.token }}
           CHYBA_SOUBOR: ${{ runner.temp }}/chyba.txt
         run: |
-          zprava="Nasazení přímo na Cloudflare změnilo soubory, které se od poslední synchronizace měnily i přes GitHub: $PREPSANO. Repo teď odpovídá živému webu. Zkontroluj, jestli se tím neztratila změna z GitHubu (git log -p -- web/<soubor>). Často je to v pořádku (třeba blog-auto přegeneroval index.html z aktuálního main); když se něco ztratilo, doplň to do aktuální verze a pushni."
+          zprava="Sync z Cloudflare převzal nasazení provedené přímo na Cloudflare."
+          if [ -n "$KONFLIKTY" ]; then
+            zprava="$zprava Tyhle soubory se změnily na Cloudflare i přes GitHub a platí teď verze z Cloudflare, změna z GitHubu v nich není: $KONFLIKTY. Najdeš ji v historii (git log -p -- web/<soubor>) a je potřeba ji do souboru doplnit."
+          fi
+          if [ -n "$NAVRATY" ]; then
+            zprava="$zprava Tyhle soubory nasazení vrátilo na verzi, která už v historii jednou byla (nasazeno ze staršího zdrojáku?): $NAVRATY. Zkontroluj, jestli to byl záměr."
+          fi
           echo "$zprava" >> "$CHYBA_SOUBOR"
           echo "::error::$zprava"
           # Vlastní issue a vždy nový komentář: seznam souborů se nesmí ztratit (příští běh už ho nespočítá).
           # Když založení issue selže, převezme to obecné upozornění níž.
-          bash nastroje/upozorneni.sh "Nasazení na Cloudflare změnilo soubory i z GitHubu – zkontrolovat" vzdy \
+          bash nastroje/upozorneni.sh "Sync z Cloudflare: soubory ke kontrole" vzdy \
             && echo "oznameno=1" >> "$GITHUB_OUTPUT"
           exit 1
 
@@ -106,7 +121,7 @@ jobs:
           fi
 
       - name: Upozornění při chybě
-        if: failure() && steps.prepsano.outputs.oznameno != '1'
+        if: failure() && steps.konflikty.outputs.oznameno != '1'
         env:
           GH_TOKEN: ${{ github.token }}
           CHYBA_SOUBOR: ${{ runner.temp }}/chyba.txt

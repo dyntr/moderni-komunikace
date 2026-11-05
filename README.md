@@ -14,19 +14,20 @@ GitHub tedy vždy odpovídá tomu, co je živě, a odsud se nasazuje.
 
 ### Pojistky
 
-- **Nasazení nepřepíše cizí nasazení.** Když je na Cloudflare něco, co přišlo zvenku a ještě není v repu,
-  nasazení z GitHubu se zastaví. Počkej na sync (do 10 min, nebo ho spusť ručně), `git pull`, pushni znovu.
-  Za „cizí“ se bere všechno, co neodpovídá obsahu některého commitu v `main`, tedy i nasazení z klonu
-  s necommitnutými změnami.
+- **Nasazení nepřepíše cizí nasazení.** Když je na Cloudflare něco, co přišlo zvenku a ještě není v repu
+  (nebo tam zrovna něco nasazuje), nasazení z GitHubu se zastaví. Nemusíš nic dělat: sync živou verzi
+  do 10–30 min spojí s tvým pushem a sloučenou verzi nasadí sám. Za „cizí“ se bere všechno, co neodpovídá
+  obsahu některého commitu v `main`, tedy i nasazení z klonu s necommitnutými změnami.
+- **Sync slučuje, nepřepisuje.** Základem je poslední stav, který byl prokazatelně živě. Co se změnilo jen
+  přes GitHub, zůstane; co jen na Cloudflare, převezme se. Soubor změněný na obou stranách vezme verzi
+  z Cloudflare a sync založí issue se seznamem. Issue přijde i tehdy, když přímé nasazení vrátí soubor
+  na verzi, která už v historii byla (typicky blog-auto ze staršího zdrojáku).
 - **Rollback v dashboardu platí.** Když na Cloudflare někdo vrátí starší nasazení, push ho nepřepíše,
-  sync ho zapíše do repa. Kdo rollback ruší, spustí nasazení ručně s „vynutit“.
+  sync ho zapíše do repa (a zachová pushe, které mezitím přišly).
 - **Sync nepřepíše čerstvý push.** Když je `main` napřed a nasazení teprve běží, sync čeká. Když nasazení
-  doběhlo před víc než 20 minutami a živě je pořád starší verze, ohlásí to.
-- **Souběžné změny se hlásí.** Když přímé nasazení na Cloudflare změní soubory, které se mezitím měnily
-  i přes GitHub (typicky blog-auto), sync je zapíše a založí issue se seznamem souborů ke kontrole.
-  Často je to v pořádku; když se změna z GitHubu ztratila, doplň ji do aktuální verze.
-- **Nasazení počká na cizí nasazení.** Když na Cloudflare zrovna něco nasazuje, push se zastaví,
-  a co přijde během nasazení z GitHubu, kontrola po nasazení ohlásí.
+  doběhlo (nebo selhalo) před víc než 20 minutami a živě je pořád starší verze, ohlásí to.
+- **Kontrola po nasazení** ověří, že doména servíruje přesně nasazený commit, a ohlásí každé cizí
+  nasazení, které přišlo během našeho.
 - **Žádné zmenšení webu omylem.** Nasazení, které by web zmenšilo na méně než polovinu souborů, se nespustí
   (ruční spuštění se zaškrtnutým „vynutit“ to přebije).
 - Každé selhání založí issue a označí @dyntr a @KChyska.

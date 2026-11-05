@@ -39,13 +39,14 @@ def pred():
     if probiha and not VYNUTIT:
         cf.chyba(
             f"Na Cloudflare právě probíhá jiné nasazení ({probiha[0]['id'][:8]}). Nenasazuji, jinak by se přepsalo. "
-            "Sync z Cloudflare ho do 10 min zapíše do repa, pak `git pull` a pushni znovu."
+            "Sync z Cloudflare (do 10–30 min) živou verzi spojí s tvým pushem a sloučenou verzi nasadí sám, nic dalšího dělat nemusíš. Kdyby se tvoje změny střetly se změnami na Cloudflare, založí issue se seznamem souborů."
         )
 
     nas = cf.zive()
     if not nas:
         print("na Cloudflare není živé nasazení – pokračuji")
         return
+    cf.vystup(zive_pred=nas["id"])
     detail, zivy = cf.manifest_nasazeni(nas["id"])
     commit = cf.commit_nasazeni(nas)
 
@@ -72,13 +73,12 @@ def pred():
     if stav == "rollback":
         cf.chyba(
             f"Na Cloudflare je rollback na starší nasazení ({nas['id'][:8]}, „{zprava}“). Nenasazuji, "
-            "jinak bych vrátil verzi, kterou někdo vědomě stáhl. Sync z Cloudflare ho do 10 min zapíše do repa; "
-            "pak `git pull`, oprav, co je potřeba, a pushni znovu. Když rollback už neplatí, spusť nasazení ručně s „vynutit“."
+            "jinak bych vrátil verzi, kterou někdo vědomě stáhl. Sync rollback zapíše do repa, tvůj push zachová "
+            "a sloučenou verzi nasadí. Když má rollback platit úplně (i proti tvému pushi), vrať svůj commit."
         )
     cf.chyba(
         f"Na Cloudflare je nasazení zvenku ({nas['id'][:8]}, {nas['created_on'][:16]}, „{zprava}“), "
-        "které ještě není v repu. Nenasazuji, jinak by se přepsalo. Počkej na Sync z Cloudflare "
-        "(do 10 min, nebo ho spusť ručně), pak `git pull` a pushni znovu."
+        "které ještě není v repu. Nenasazuji, jinak by se přepsalo. Sync z Cloudflare (do 10–30 min) živou verzi spojí s tvým pushem a sloučenou verzi nasadí sám, nic dalšího dělat nemusíš. Kdyby se tvoje změny střetly se změnami na Cloudflare, založí issue se seznamem souborů."
     )
 
 
@@ -104,9 +104,10 @@ def bez_ochrany_emailu(html: bytes) -> bytes:
 def po():
     if not SHA:
         cf.chyba("chybí GITHUB_SHA")
+    pred_id = os.environ.get("ZIVE_PRED", "")
     for _ in range(18):
         nas = cf.zive()
-        if nas and cf.commit_nasazeni(nas) == SHA:
+        if nas and cf.commit_nasazeni(nas) == SHA and nas["id"] != pred_id:
             break
         time.sleep(10)
     else:
@@ -159,7 +160,7 @@ def po():
         if cizi:
             cf.chyba(
                 "Během nasazení přišlo na Cloudflare nasazení zvenku a bylo přepsáno: "
-                + ", ".join(f"{d['id'][:8]} „{(d.get('deployment_trigger') or {}).get('metadata', {}).get('commit_message', '')[:60]}“" for d in cizi)
+                + ", ".join(f"{d['id'][:8]} „{((d.get('deployment_trigger') or {}).get('metadata') or {}).get('commit_message', '')[:60]}“" for d in cizi)
                 + ". Je potřeba ho znovu nasadit (nebo jeho obsah dát do repa)."
             )
 

@@ -76,6 +76,7 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.MK_BRANA_KLIC }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           ZACATEK: ${{ steps.pred.outputs.zacatek }}
+          ZIVE_PRED: ${{ steps.pred.outputs.zive_pred }}
           MK_CHYBA_SOUBOR: ${{ runner.temp }}/chyba.txt
         run: python nastroje/kontrola_nasazeni.py po
 

@@ -8,8 +8,9 @@ Rozhoduje obsah, ne původ (cf.stav_ziveho, stejné pravidlo používá kontrola
     s necommitnutými změnami, rollback)             → stáhnout, ověřit otisky, nahradit web/
 
 Každý stažený soubor se ověří proti otisku z manifestu Cloudflare (blake3 jako wrangler).
-Když sync přepíše soubory, které někdo od poslední synchronizace změnil přes GitHub,
-commit proběhne (repo musí odpovídat živému webu), ale úloha skončí chybou a založí upozornění.
+Stažená verze se tříbodově sloučí s main (základ = poslední stav, který byl prokazatelně živě):
+změny z GitHubu, které živě ještě nebyly, zůstanou a sync spustí nasazení. Konflikty a návraty
+souborů ke starší verzi se nahlásí issue.
 """
 import json, os, shutil, subprocess, sys, tempfile, time, urllib.error, urllib.parse, urllib.request
 from datetime import datetime, timezone
@@ -42,18 +43,46 @@ def git(*args):
     return subprocess.run(["git", *args], capture_output=True, text=True, check=True).stdout
 
 
-def zmeneno_pres_github():
-    """Soubory ve web/, které od poslední synchronizace změnil někdo jiný než sync."""
-    base = git("log", f"--author={cf.SYNC_AUTOR}", "-1", "--format=%H").strip()
-    rozsah = [f"{base}..HEAD"] if base else ["HEAD"]
-    vystup = git("-c", "core.quotepath=off", "log", *rozsah, "--format=@@%an", "--name-only", "--", "web/")
-    soubory, autor = set(), ""
-    for radek in vystup.splitlines():
-        if radek.startswith("@@"):
-            autor = radek[2:]
-        elif radek.strip() and autor != cf.SYNC_AUTOR:
-            soubory.add("/" + radek.strip()[len("web/"):])
-    return soubory
+def zakladna(nas):
+    """Poslední stav webu, který byl prokazatelně živě a je v historii main – základ pro tříbodové sloučení.
+
+    Kandidáti jsou nasazení (ne commity – commit se sloučením nikdy živě být nemusel):
+      * nasazení ze značky syncu; v historii stojí na commitu, který značku naposledy zapsal
+      * nejnovější čisté nasazení z GitHubu (obsah = commit z historie main)
+    Vrací (manifest, commit v historii) toho, které je v historii novější, nebo (None, None).
+    """
+    kandidati = []  # (commit, manifest, priorita při shodě)
+    zid = cf.znacka()[0]
+    zcommit = git("log", "-1", "--format=%H", "--", cf.ZNACKA).strip()
+    if zid and zid != nas["id"] and zcommit:
+        kandidati.append((zcommit, cf.manifest_nasazeni(zid)[1], 0))
+    for d in cf.api("/deployments?env=production&per_page=10"):
+        if d["id"] == nas["id"] or (d.get("latest_stage") or {}).get("status") != "success":
+            continue
+        c = cf.commit_nasazeni(d)
+        if c and cf.je_predek(c):
+            m = cf.manifest_nasazeni(d["id"])[1]
+            if cf.manifest_commitu(c) == m:
+                kandidati.append((c, m, 1))
+                break
+    if zid == nas["id"] and zcommit:
+        # živé je samo nasazení ze značky (vynucený sync) – jeho obsah je základ
+        kandidati.append((zcommit, cf.manifest_nasazeni(zid)[1], 0))
+    if not kandidati:
+        return None, None
+    nej = kandidati[0]
+    for k in kandidati[1:]:
+        if k[0] != nej[0] and cf.je_predek(nej[0], k[0]):
+            nej = k
+        elif k[0] == nej[0] and k[2] > nej[2]:
+            nej = k  # čisté nasazení commitu je přesnější než značka na stejném commitu
+    return nej[1], nej[0]
+
+
+def byl_uz_v_historii(cesta, data):
+    """True, když přesně tenhle obsah souboru už někdy byl v historii (tj. návrat ke starší verzi)."""
+    blob = subprocess.run(["git", "hash-object", "--stdin"], input=data, capture_output=True, check=True).stdout.decode().strip()
+    return bool(git("-c", "core.quotepath=off", "log", "-1", "--format=%H", f"--find-object={blob}", "--", "web" + cesta).strip())
 
 
 def github(cesta):
@@ -137,12 +166,12 @@ def main():
     if stav == "nase" and not VYNUTIT:
         cekej_na_nasazeni(commit)
         cf.vystup(zmena=0); return
-    if stav == "rollback" and not VYNUTIT:
-        # „Rollback“ vypadá stejně jako chvíle, kdy nasazení z GitHubu právě doběhlo mezi dvěma dotazy na API.
-        # Stahujeme jen tehdy, když nasazení z GitHubu neběží a živé je pořád totéž nasazení.
+    if not VYNUTIT:
+        # „Rollback“ i „zvenku“ může být jen chvíle, kdy nasazení z GitHubu právě běží nebo doběhlo mezi
+        # dvěma dotazy na API. Stahujeme jen tehdy, když neběží a živé je pořád totéž nasazení.
         beh = posledni_nasazeni_z_githubu()
         if beh is None or beh["status"] != "completed" or (cf.zive() or {}).get("id") != nid:
-            print("vypadá to na rollback, ale nasazení z GitHubu běží nebo se živý web právě změnil – zkusím při dalším běhu")
+            print("nasazení z GitHubu běží nebo se živý web právě změnil – zkusím při dalším běhu")
             cf.vystup(zmena=0); return
     if stav == "nase":
         print("vynuceno: stahuji živou verzi, i když je main napřed")
@@ -178,10 +207,36 @@ def main():
         cil = os.path.join(tmp, s.rstrip("/"))
         (shutil.copytree if os.path.isdir(zdroj) else shutil.copy2)(zdroj, cil)
 
+    # Tříbodové sloučení proti poslednímu stavu, který byl prokazatelně živě: co se změnilo jen přes GitHub
+    # (a živě ještě nebylo), zůstane; co jen na Cloudflare, převezme se; změna na obou stranách = konflikt,
+    # vyhraje živý web a soubor se nahlásí.
     rozdil = {c for c in set(zivy) | set(lokalni) if zivy.get(c) != lokalni.get(c)}
-    # Rollback je vědomý krok, tam se změny z GitHubu vrací záměrně. U nasazení zvenku hlásíme soubory,
-    # které se od poslední synchronizace změnily přes GitHub a teď se liší – ke kontrole, ne k vracení.
-    prepsano = [] if stav == "rollback" else sorted(rozdil & zmeneno_pres_github())
+    ponechano, konflikty, navraty = [], [], []
+    zakl, zakl_commit = (None, None) if VYNUTIT else zakladna(nas)
+    if VYNUTIT:
+        print("vynuceno: přebírám živý web celý")
+    elif zakl is None:
+        print("::warning::nenašel jsem poslední živý stav v historii – přebírám živý web celý a hlásím všechny rozdíly")
+        konflikty = sorted(rozdil)
+    else:
+        print(f"základ sloučení: stav živého webu na commitu {zakl_commit[:8]}")
+    for c in sorted(set(zivy) | set(lokalni) | set(zakl)) if zakl is not None else []:
+        z, o, t = zakl.get(c), lokalni.get(c), zivy.get(c)
+        if o == t or o == z:
+            if t is not None and t != z and stav != "rollback" and byl_uz_v_historii(c, open(tmp + c, "rb").read()):
+                navraty.append(c)  # Cloudflare vrátil soubor na verzi, která už v historii byla (starý zdroják?)
+            continue  # převzít živou verzi (je v tmp)
+        if t == z:
+            ponechano.append(c)  # změna jen přes GitHub – nechat
+            if o is None:
+                os.remove(tmp + c)
+            else:
+                os.makedirs(os.path.dirname(tmp + c), exist_ok=True)
+                shutil.copy2("web" + c, tmp + c)
+            continue
+        konflikty.append(c)
+    if ponechano:
+        print(f"ponechávám změny z GitHubu, které ještě nebyly živě ({len(ponechano)}): {' '.join(ponechano[:20])}")
 
     shutil.rmtree("web")
     shutil.move(tmp, "web")
@@ -190,8 +245,13 @@ def main():
         f.write(f"{nid} {nas['created_on']} {commit or '-'} {cas}\n")
     meta = (nas.get("deployment_trigger") or {}).get("metadata") or {}
     zprava = f"sync z Cloudflare: {nid[:8]} – {(meta.get('commit_message') or 'přímé nasazení').splitlines()[0][:150]}"
+    if ponechano:
+        zprava += f" (+ ponecháno {len(ponechano)} změn z GitHubu)"
     print(zprava, f"({len(zivy)} souborů ověřeno, {len(rozdil)} změněno)")
-    cf.vystup(zmena=1, zprava=zprava, prepsano=" ".join(prepsano[:40]))
+    cf.vystup(
+        zmena=1, zprava=zprava, nasadit=1 if ponechano else 0,
+        konflikty=" ".join(konflikty[:40]), navraty=" ".join(navraty[:40]),
+    )
 
 
 if __name__ == "__main__":
