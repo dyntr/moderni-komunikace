@@ -140,15 +140,31 @@ def stav_ziveho(nas, zivy, lokalni):
     """
     if zivy == lokalni:
         return "stejne"
-    zid, _, _, zcas = znacka()
-    if nas["id"] == zid:
-        # sync už toto nasazení zapsal do repa; když po synchronizaci naběhlo něco novějšího
-        # a živé je zase tohle, je to rollback na něj
-        return "rollback" if novejsi_uspesna(nas, zcas) else "nase"
+    zaznam = zaznamy_syncu().get(nas["id"])
+    if zaznam:
+        # sync už toto nasazení zapsal do repa (i když značku v HEAD mezitím přepsal revert); když po
+        # synchronizaci naběhlo něco novějšího a živé je zase tohle, je to rollback na něj
+        return "rollback" if novejsi_uspesna(nas, zaznam[1]) else "nase"
     commit = commit_nasazeni(nas)
     if not (je_predek(commit) and manifest_commitu(commit) == zivy):
         return "zvenku"
     return "rollback" if novejsi_uspesna(nas) else "nase"
+
+
+def zaznamy_syncu(hloubka=200):
+    """{id nasazení: (commit, čas synchronizace)} ze všech verzí značky v historii HEAD.
+
+    Commit = ten, který řádek značky zapsal POPRVÉ. Revert sync commitu značku vrátí na starší řádek,
+    ten ale ukazuje na svůj původní commit – revert tak nepředstírá, že živě bylo starší nasazení.
+    """
+    vysledek = {}
+    commity = subprocess.run(["git", "log", f"-{hloubka}", "--format=%H", "--", ZNACKA], capture_output=True, text=True).stdout.split()
+    for c in commity:  # od nejnovějšího → poslední zápis je nejstarší výskyt
+        r = subprocess.run(["git", "show", f"{c}:{ZNACKA}"], capture_output=True, text=True)
+        casti = (r.stdout.split() + ["", "", "", ""])[:4] if r.returncode == 0 else []
+        if casti and casti[0]:
+            vysledek[casti[0]] = (c, casti[3])
+    return vysledek
 
 
 def znacka():

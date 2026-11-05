@@ -21,7 +21,7 @@ GitHub tedy vždy odpovídá tomu, co je živě, a odsud se nasazuje.
 - **Sync slučuje, nepřepisuje.** Základem je poslední stav, který byl prokazatelně živě. Co se změnilo jen
   přes GitHub, zůstane; co jen na Cloudflare, převezme se. Soubor změněný na obou stranách vezme verzi
   z Cloudflare a sync založí issue se seznamem. Issue přijde i tehdy, když přímé nasazení vrátí soubor
-  na verzi, která už v historii byla (typicky blog-auto ze staršího zdrojáku).
+  na verzi, která už v historii byla, nebo smaže soubor z GitHubu (typicky blog-auto ze staršího zdrojáku).
 - **Rollback v dashboardu platí.** Když na Cloudflare někdo vrátí starší nasazení, push ho nepřepíše,
   sync ho zapíše do repa (a zachová pushe, které mezitím přišly).
 - **Sync nepřepíše čerstvý push.** Když je `main` napřed a nasazení teprve běží, sync čeká. Když nasazení
@@ -40,7 +40,8 @@ GitHub tedy vždy odpovídá tomu, co je živě, a odsud se nasazuje.
   `wrangler pages deploy` udělá `git push` do tohohle repa.
 - Ruční nasazení: Actions → *Nasazení na Cloudflare* → *Run workflow*.
 - Okamžitý sync z Cloudflare: Actions → *Sync z Cloudflare* → *Run workflow*.
-- Návrat na starší verzi: `git revert` a push, nebo rollback v dashboardu Cloudflare (sync ho pak zapíše sem).
+- Návrat na starší verzi: `git revert` a push (i revert commitu od syncu se normálně nasadí), nebo rollback
+  v dashboardu Cloudflare (sync ho pak zapíše sem).
 - `_headers`, `_redirects`, `_routes.json` a `functions/` se z Cloudflare zpátky stáhnout nedají.
   Když je potřebuješ, dej je do `web/` tady v repu.
 

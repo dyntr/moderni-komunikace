@@ -47,15 +47,14 @@ def zakladna(nas):
     """Poslední stav webu, který byl prokazatelně živě a je v historii main – základ pro tříbodové sloučení.
 
     Kandidáti jsou nasazení (ne commity – commit se sloučením nikdy živě být nemusel):
-      * nasazení ze značky syncu; v historii stojí na commitu, který značku naposledy zapsal
+      * každé nasazení, které sync zapsal do repa; v historii stojí na commitu, který ho do značky
+        zapsal poprvé (revert sync commitu tak základ neposune zpátky)
       * nejnovější čisté nasazení z GitHubu (obsah = commit z historie main)
     Vrací (manifest, commit v historii) toho, které je v historii novější, nebo (None, None).
     """
     kandidati = []  # (commit, manifest, priorita při shodě)
-    zid = cf.znacka()[0]
-    zcommit = git("log", "-1", "--format=%H", "--", cf.ZNACKA).strip()
-    if zid and zid != nas["id"] and zcommit:
-        kandidati.append((zcommit, cf.manifest_nasazeni(zid)[1], 0))
+    for zid, (zcommit, _) in cf.zaznamy_syncu().items():
+        kandidati.append((zcommit, None, 0, zid))
     for d in cf.api("/deployments?env=production&per_page=10"):
         if d["id"] == nas["id"] or (d.get("latest_stage") or {}).get("status") != "success":
             continue
@@ -63,11 +62,8 @@ def zakladna(nas):
         if c and cf.je_predek(c):
             m = cf.manifest_nasazeni(d["id"])[1]
             if cf.manifest_commitu(c) == m:
-                kandidati.append((c, m, 1))
+                kandidati.append((c, m, 1, d["id"]))
                 break
-    if zid == nas["id"] and zcommit:
-        # živé je samo nasazení ze značky (vynucený sync) – jeho obsah je základ
-        kandidati.append((zcommit, cf.manifest_nasazeni(zid)[1], 0))
     if not kandidati:
         return None, None
     nej = kandidati[0]
@@ -76,7 +72,8 @@ def zakladna(nas):
             nej = k
         elif k[0] == nej[0] and k[2] > nej[2]:
             nej = k  # čisté nasazení commitu je přesnější než značka na stejném commitu
-    return nej[1], nej[0]
+    manifest = nej[1] if nej[1] is not None else cf.manifest_nasazeni(nej[3])[1]
+    return manifest, nej[0]
 
 
 def byl_uz_v_historii(cesta, data):
@@ -211,7 +208,7 @@ def main():
     # (a živě ještě nebylo), zůstane; co jen na Cloudflare, převezme se; změna na obou stranách = konflikt,
     # vyhraje živý web a soubor se nahlásí.
     rozdil = {c for c in set(zivy) | set(lokalni) if zivy.get(c) != lokalni.get(c)}
-    ponechano, konflikty, navraty = [], [], []
+    ponechano, konflikty, navraty, smazano = [], [], [], []
     zakl, zakl_commit = (None, None) if VYNUTIT else zakladna(nas)
     if VYNUTIT:
         print("vynuceno: přebírám živý web celý")
@@ -222,10 +219,16 @@ def main():
         print(f"základ sloučení: stav živého webu na commitu {zakl_commit[:8]}")
     for c in sorted(set(zivy) | set(lokalni) | set(zakl)) if zakl is not None else []:
         z, o, t = zakl.get(c), lokalni.get(c), zivy.get(c)
-        if o == t or o == z:
-            if t is not None and t != z and stav != "rollback" and byl_uz_v_historii(c, open(tmp + c, "rb").read()):
-                navraty.append(c)  # Cloudflare vrátil soubor na verzi, která už v historii byla (starý zdroják?)
-            continue  # převzít živou verzi (je v tmp)
+        if o == t:
+            continue  # repo i živý web stejné
+        if o == z:
+            # změna jen na Cloudflare – převzít živou verzi (je v tmp); u přímého nasazení hlídat starý zdroják
+            if stav != "rollback":
+                if t is None:
+                    smazano.append(c)
+                elif byl_uz_v_historii(c, open(tmp + c, "rb").read()):
+                    navraty.append(c)
+            continue
         if t == z:
             ponechano.append(c)  # změna jen přes GitHub – nechat
             if o is None:
@@ -250,7 +253,7 @@ def main():
     print(zprava, f"({len(zivy)} souborů ověřeno, {len(rozdil)} změněno)")
     cf.vystup(
         zmena=1, zprava=zprava, nasadit=1 if ponechano else 0,
-        konflikty=" ".join(konflikty[:40]), navraty=" ".join(navraty[:40]),
+        konflikty=" ".join(konflikty[:40]), navraty=" ".join(navraty[:40]), smazano=" ".join(smazano[:40]),
     )
 
 

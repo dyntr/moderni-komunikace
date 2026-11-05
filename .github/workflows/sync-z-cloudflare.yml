@@ -87,10 +87,11 @@ jobs:
 
       - name: Konflikty a návraty ke kontrole
         id: konflikty
-        if: steps.push.outputs.ok == '1' && (steps.sync.outputs.konflikty != '' || steps.sync.outputs.navraty != '')
+        if: steps.push.outputs.ok == '1' && (steps.sync.outputs.konflikty != '' || steps.sync.outputs.navraty != '' || steps.sync.outputs.smazano != '')
         env:
           KONFLIKTY: ${{ steps.sync.outputs.konflikty }}
           NAVRATY: ${{ steps.sync.outputs.navraty }}
+          SMAZANO: ${{ steps.sync.outputs.smazano }}
           GH_TOKEN: ${{ github.token }}
           CHYBA_SOUBOR: ${{ runner.temp }}/chyba.txt
         run: |
@@ -100,6 +101,9 @@ jobs:
           fi
           if [ -n "$NAVRATY" ]; then
             zprava="$zprava Tyhle soubory nasazení vrátilo na verzi, která už v historii jednou byla (nasazeno ze staršího zdrojáku?): $NAVRATY. Zkontroluj, jestli to byl záměr."
+          fi
+          if [ -n "$SMAZANO" ]; then
+            zprava="$zprava Tyhle soubory nasazení na Cloudflare smazalo (ve verzi z GitHubu byly): $SMAZANO. Jestli to nebyl záměr, obnov je z commitu před tímto syncem (git checkout <commit>~1 -- web/<soubor>) a pushni."
           fi
           echo "$zprava" >> "$CHYBA_SOUBOR"
           echo "::error::$zprava"
