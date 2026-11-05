@@ -1,0 +1,54 @@
+# Push do main = web je do minuty živě na modernikomunikace.com (Cloudflare Pages, projekt modernikomunikace).
+name: Nasazení na Cloudflare
+
+on:
+  push:
+    branches: [main]
+    paths: ["web/**", ".github/workflows/nasazeni.yml"]
+  workflow_dispatch:
+
+concurrency:
+  group: nasazeni-produkce
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  nasadit:
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Kontrola obsahu
+        run: |
+          test -f web/index.html || { echo "web/index.html chybí – nenasazuji"; exit 1; }
+          echo "Souborů k nasazení: $(find web -type f | wc -l)"
+
+      - name: Nasadit na Cloudflare Pages (produkce)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          ZPRAVA: ${{ github.event.head_commit.message }}
+        run: |
+          npx --yes wrangler@4.151.2 pages deploy web \
+            --project-name=modernikomunikace \
+            --branch=main \
+            --commit-hash="$GITHUB_SHA" \
+            --commit-message="github: $(printf '%s' "${ZPRAVA:-ruční nasazení}" | head -n1 | cut -c1-200)" \
+            --commit-dirty=false
+
+      - name: Ověřit, že web odpovídá
+        run: |
+          for i in 1 2 3 4 5 6; do
+            kod=$(curl -s -o /dev/null -w '%{http_code}' https://modernikomunikace.com/)
+            [ "$kod" = "200" ] && { echo "modernikomunikace.com → 200"; exit 0; }
+            sleep 10
+          done
+          echo "modernikomunikace.com nevrací 200 (poslední kód $kod)"; exit 1
