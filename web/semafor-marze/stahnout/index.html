@@ -264,8 +264,54 @@ footer a{color:var(--soft)}
   <span>© Moderní Komunikace s.r.o. · IČO 17366470 · Grafická 3365/1, Praha 5</span>
   <span><a href="/ochrana-osobnich-udaju/">Ochrana osobních údajů</a> · <a href="/kontakt/">Kontakt</a></span>
 </div></footer>
+<div class="ck" id="ck" role="dialog" aria-label="Souhlas s cookies" hidden>
+  <p>Měříme Meta Pixelem, kolik lidí si Excel stáhlo z reklamy. Jen s vaším souhlasem. <a href="/ochrana-osobnich-udaju/" target="_blank" rel="noopener">Podrobnosti</a></p>
+  <div class="ck-b"><button type="button" data-c="no">Odmítnout</button><button type="button" data-c="yes">Souhlasím</button></div>
+</div>
+<style>
+.ck{position:fixed;z-index:70;left:1rem;bottom:1rem;max-width:25rem;padding:1.1rem 1.2rem;border-radius:16px;background:rgba(20,20,26,.97);border:1px solid rgba(255,255,255,.16);box-shadow:0 20px 60px -10px rgba(0,0,0,.8);font-size:.9rem;line-height:1.5;color:rgba(245,245,247,.82)}
+.ck[hidden]{display:none}
+.ck a{color:#fff}
+.ck-b{display:flex;gap:.6rem;margin-top:.9rem}
+.ck-b button{flex:1;font:700 .92rem/1 Satoshi,system-ui,sans-serif;color:#fff;background:#23232b;border:1px solid rgba(255,255,255,.22);border-radius:10px;padding:.8rem 1rem;cursor:pointer}
+.ck-b button:hover{border-color:rgba(255,255,255,.5)}
+@media (max-width:640px){.ck{left:.6rem;right:.6rem;bottom:.6rem;max-width:none}}
+</style>
 <script>
-(function(){var n=document.getElementById('nav');})();
+(function () {
+  var PIXEL = '1051714851032965', KEY = 'mk_cookie_consent', waiting = [], loaded = false;
+  function get() { try { return localStorage.getItem(KEY); } catch (e) { return null; } }
+  function set(v) { try { localStorage.setItem(KEY, v); } catch (e) {} }
+  function loadPixel() {
+    if (loaded) return; loaded = true;
+    !function (f, b, e, v, n, t, s) { if (f.fbq) return; n = f.fbq = function () { n.callMethod ? n.callMethod.apply(n, arguments) : n.queue.push(arguments); };
+      if (!f._fbq) f._fbq = n; n.push = n; n.loaded = !0; n.version = '2.0'; n.queue = []; t = b.createElement(e); t.async = !0; t.src = v;
+      s = b.getElementsByTagName(e)[0]; s.parentNode.insertBefore(t, s); }(window, document, 'script', 'https://connect.facebook.net/en_US/fbevents.js');
+    fbq('init', PIXEL); fbq('track', 'PageView');
+    waiting.splice(0).forEach(function (cb) { cb(); });
+  }
+  /* cb se spustí, až je pixel načtený (tj. jen se souhlasem) */
+  window.mkWhenPixel = function (cb) { if (loaded) cb(); else waiting.push(cb); };
+  var box = document.getElementById('ck');
+  var state = get();
+  if (state === 'yes') loadPixel();
+  else if (state !== 'no') {
+    box.hidden = false;
+    box.addEventListener('click', function (e) {
+      var c = e.target.getAttribute && e.target.getAttribute('data-c');
+      if (!c) return;
+      set(c === 'yes' ? 'yes' : 'no'); box.hidden = true;
+      if (c === 'yes') loadPixel();
+    });
+  }
+})();
+</script>
+
+<script>
+window.mkWhenPixel&&mkWhenPixel(function(){
+  try{if(sessionStorage.getItem("mk_lead"))return;sessionStorage.setItem("mk_lead","1")}catch(e){}
+  fbq("track","Lead");
+});
 </script>
 </body>
 </html>
