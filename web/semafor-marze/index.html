@@ -180,6 +180,9 @@ html.js .reveal.in{opacity:1;transform:none}
 .fg.bad .err{display:block}
 .small-note{display:none;margin:0 0 1.1rem;padding:1rem 1.1rem;border-radius:12px;background:rgba(247,183,49,.1);border:1px solid rgba(247,183,49,.4);color:#f9d98a;font-size:.95rem;line-height:1.5}
 .small-note.show{display:block}
+.chk{display:flex;gap:.75rem;align-items:flex-start;margin:.2rem 0 1.1rem;font-size:.88rem;line-height:1.45;color:var(--soft);cursor:pointer}
+.chk input{flex:none;width:1.2rem;height:1.2rem;margin-top:.15rem;accent-color:#ff5a2f;cursor:pointer}
+.chk small{color:var(--faint)}
 .hp{position:absolute;left:-9999px;opacity:0;height:0;overflow:hidden}
 .form .btn{width:100%;margin-top:.5rem}
 .fine{margin-top:1rem;font-size:.8rem;color:var(--faint);line-height:1.5}
@@ -386,10 +389,11 @@ footer a{color:var(--soft)}
       <div class="fg"><label for="f-size">Kolik vás ve firmě je</label>
         <select id="f-size" name="size"><option value="">Vyberte</option><option data-small="1">1 až 4 lidé</option><option data-small="1">5 až 9 lidí</option><option>10 až 19 lidí</option><option>20 až 49 lidí</option><option>50 a více lidí</option></select><span class="err">Vyberte prosím, kolik vás je.</span></div>
       <p class="small-note" id="f-small" role="status">Díky za upřímnost. Tenhle Excel je postavený pro firmy od 10 lidí, v menší firmě by vás jen zdržoval. Až budete růst, ozvěte se.</p>
+      <label class="chk"><input type="checkbox" id="f-mkt" name="mkt"><span>Souhlasím, že mi Moderní Komunikace může posílat tipy a&nbsp;nabídky e-mailem. Souhlas mohu kdykoli odvolat. <small>(nepovinné)</small></span></label>
       <div class="hp" aria-hidden="true"><label>Web <input tabindex="-1" autocomplete="off" id="f-web" name="web"></label></div>
       <button class="btn" type="submit" id="f-btn">Stáhnout Excel zdarma <span aria-hidden="true">→</span></button>
       <p class="msg" id="f-msg" role="alert"></p>
-      <p class="fine">Odesláním formuláře beru na vědomí <a href="/ochrana-osobnich-udaju/" target="_blank" rel="noopener">zásady zpracování osobních údajů</a>. Údaje použijeme k doručení souboru a k případnému zavolání. Z kontaktu se můžete kdykoli odhlásit jedním e-mailem.</p>
+      <p class="fine">Odesláním formuláře beru na vědomí <a href="/semafor-marze/gdpr/" target="_blank" rel="noopener">zásady zpracování osobních údajů</a>. Správce Moderní Komunikace s.r.o. použije jméno, e-mail a telefon k doručení Excelu a k tomu, aby se vám mohl ozvat s nabídkou služeb (oprávněný zájem, námitku můžete vznést kdykoli).</p>
     </form>
   </div>
 </section>
@@ -398,7 +402,7 @@ footer a{color:var(--soft)}
 <footer>
   <div class="wrap">
     <span>© Moderní Komunikace s.r.o. · IČO 17366470 · Grafická 3365/1, Praha 5</span>
-    <span><a href="/ochrana-osobnich-udaju/">Ochrana osobních údajů</a> · <a href="/kontakt/">Kontakt</a> · <a href="mailto:info@modernikomunikace.com">info@modernikomunikace.com</a></span>
+    <span><a href="/semafor-marze/gdpr/">Zásady zpracování údajů</a> · <a href="/ochrana-osobnich-udaju/">Ochrana osobních údajů webu</a> · <a href="/kontakt/">Kontakt</a> · <a href="mailto:info@modernikomunikace.com">info@modernikomunikace.com</a></span>
   </div>
 </footer>
 
@@ -456,7 +460,8 @@ footer a{color:var(--soft)}
     var q = new URLSearchParams(location.search), utm = [];
     ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content'].forEach(function (k) { if (q.get(k)) utm.push(k + '=' + q.get(k)); });
     var message = ['Lead magnet: Excel na hlídání marže akcí (stavebnictví)', 'Telefon: ' + phone,
-      $('f-size').value && 'Velikost firmy: ' + $('f-size').value, utm.length && 'UTM: ' + utm.join(', '), 'Stránka: /semafor-marze/']
+      $('f-size').value && 'Velikost firmy: ' + $('f-size').value, utm.length && 'UTM: ' + utm.join(', '), 'Souhlas s e-mailovými nabídkami: ' + ($('f-mkt').checked ? 'ano' : 'ne'),
+      'Zásady: 2026-11-07', 'Čas odeslání: ' + new Date().toISOString(), 'Stránka: /semafor-marze/']
       .filter(Boolean).join(' | ');
     btn.disabled = true; btn.firstChild.textContent = 'Odesílám… ';
     fetch(ENDPOINT, {
@@ -474,7 +479,7 @@ footer a{color:var(--soft)}
 })();
 </script>
 <div class="ck" id="ck" role="dialog" aria-label="Souhlas s cookies" hidden>
-  <p>Měříme Meta Pixelem, kolik lidí si Excel stáhlo z reklamy. Jen s vaším souhlasem. <a href="/ochrana-osobnich-udaju/" target="_blank" rel="noopener">Podrobnosti</a></p>
+  <p>Měříme Meta Pixelem, kolik lidí si Excel stáhlo z reklamy. Jen s vaším souhlasem. <a href="/semafor-marze/gdpr/" target="_blank" rel="noopener">Podrobnosti</a></p>
   <div class="ck-b"><button type="button" data-c="no">Odmítnout</button><button type="button" data-c="yes">Souhlasím</button></div>
 </div>
 <style>
