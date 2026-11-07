@@ -312,7 +312,7 @@ footer a{color:var(--soft)}
       <div class="card reveal"><div class="ic">5</div><h3>Vyplněný příklad</h3><p>Druhý soubor se šesti zakázkami. Dvě červené, dvě žluté, dvě zelené. Za deset minut pochopíte, jak to funguje.</p></div>
       <div class="card reveal"><div class="ic">+</div><h3>Návod na 15 minut</h3><p>Pět kroků na úvodním listu, v&nbsp;pořadí, v&nbsp;jakém to vyplňujete. Nic víc nepotřebujete.</p></div>
     </div>
-    <div class="price reveal"><div><div class="big gt">0&nbsp;Kč</div></div><p>Šablona i vyplněný příklad. Zadáte jméno, e-mail a telefon a soubory se stáhnou hned. Nic se neplatí a nic se neinstaluje.</p><a class="btn" href="#stahnout">Stáhnout Excel zdarma</a></div>
+    <div class="price reveal"><div><div class="big gt">0&nbsp;Kč</div></div><p>Šablona i vyplněný příklad. Zadáte jméno a e-mail a soubory se stáhnou hned. Nic se neplatí a nic se neinstaluje.</p><a class="btn" href="#stahnout">Stáhnout Excel zdarma</a></div>
   </div>
 </section>
 
@@ -353,8 +353,7 @@ footer a{color:var(--soft)}
   <div class="narrow">
     <div class="reveal"><p class="eyebrow">Otázky</p><h2>Než si to stáhnete</h2></div>
     <div class="faq reveal">
-      <details><summary>Je to opravdu zdarma?</summary><p>Ano. Zadáte jméno, e-mail a telefon a soubory se stáhnou hned na další stránce. Nic neplatíte.</p></details>
-      <details><summary>Proč chcete telefon?</summary><p>Abychom vám mohli zavolat, jestli se v tabulce zaseknete nebo vás zajímá, jak by se plnila sama. Nic víc.</p></details>
+      <details><summary>Je to opravdu zdarma?</summary><p>Ano. Zadáte jméno a e-mail a soubory se stáhnou hned na další stránce. Nic neplatíte.</p></details>
       <details><summary>Máme rozpočty v jiném programu. Bude to fungovat?</summary><p>Rozpočet zůstává tam, kde je. Do listu Zakázky přepíšete jen dvě čísla: cenu zakázky a plánované náklady.</p></details>
       <details><summary>Co s DPH a přenesenou daňovou povinností?</summary><p>U každé faktury zvolíte sazbu DPH. U přenesené daňové povinnosti dáte 0 %. Marže se počítá z částek bez DPH, cashflow z částek s DPH.</p></details>
       <details><summary>Kolik zakázek se do toho vejde?</summary><p>Padesát zakázek současně, pět set přijatých faktur a tisíc řádků hodin. Hotové zakázky můžete průběžně mazat, nebo si uložit kopii souboru.</p></details>
@@ -379,13 +378,12 @@ footer a{color:var(--soft)}
     <form class="form reveal" id="lead-form" novalidate>
       <div class="fg"><label for="f-name">Jméno</label><input id="f-name" name="name" autocomplete="name" placeholder="Jan Novák"><span class="err">Napište prosím své jméno.</span></div>
       <div class="fg"><label for="f-email">E-mail</label><input id="f-email" name="email" type="email" autocomplete="email" inputmode="email" placeholder="jan@vasefirma.cz"><span class="err">Zkontrolujte prosím e-mail.</span></div>
-      <div class="fg"><label for="f-phone">Telefon</label><input id="f-phone" name="phone" type="tel" autocomplete="tel" inputmode="tel" placeholder="+420 777 123 456"><span class="err">Zadejte prosím telefon, alespoň 9 číslic.</span></div>
       <div class="fg"><label for="f-size">Kolik vás ve firmě je <small>(nepovinné)</small></label>
         <select id="f-size" name="size"><option value="">Vyberte</option><option>1 až 4 lidé</option><option>5 až 9 lidí</option><option>10 až 19 lidí</option><option>20 až 49 lidí</option><option>50 a více lidí</option></select></div>
       <div class="hp" aria-hidden="true"><label>Web <input tabindex="-1" autocomplete="off" id="f-web" name="web"></label></div>
       <button class="btn" type="submit" id="f-btn">Stáhnout Excel zdarma <span aria-hidden="true">→</span></button>
       <p class="msg" id="f-msg" role="alert"></p>
-      <p class="fine">Odesláním formuláře beru na vědomí <a href="/ochrana-osobnich-udaju/" target="_blank" rel="noopener">zásady zpracování osobních údajů</a>. Údaje použijeme k doručení souboru a k případnému zavolání. Z kontaktu se můžete kdykoli odhlásit jedním e-mailem.</p>
+      <p class="fine">Odesláním formuláře beru na vědomí <a href="/ochrana-osobnich-udaju/" target="_blank" rel="noopener">zásady zpracování osobních údajů</a>. Údaje použijeme k doručení souboru a k případnému e-mailu s dalším tipem. Odhlásit se můžete kdykoli jedním e-mailem.</p>
     </form>
   </div>
 </section>
@@ -439,15 +437,15 @@ footer a{color:var(--soft)}
   form.addEventListener('submit', function (ev) {
     ev.preventDefault();
     msg.classList.remove('show');
-    var name = $('f-name').value.trim(), email = $('f-email').value.trim(), phone = $('f-phone').value.trim();
-    var checks = [[$('f-name'), name.length > 1], [$('f-email'), /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)], [$('f-phone'), phone.replace(/\D/g, '').length >= 9]];
+    var name = $('f-name').value.trim(), email = $('f-email').value.trim();
+    var checks = [[$('f-name'), name.length > 1], [$('f-email'), /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)]];
     var ok = true;
     checks.forEach(function (c) { c[0].closest('.fg').classList.toggle('bad', !c[1]); if (!c[1]) ok = false; });
     if (!ok) { var bad = form.querySelector('.fg.bad'); if (bad) bad.scrollIntoView({ behavior: 'smooth', block: 'center' }); return; }
     if ($('f-web').value) { location.href = '/semafor-marze/stahnout/'; return; }
     var q = new URLSearchParams(location.search), utm = [];
     ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content'].forEach(function (k) { if (q.get(k)) utm.push(k + '=' + q.get(k)); });
-    var message = ['Lead magnet: Semafor marže zakázek (stavebnictví)', 'Telefon: ' + phone,
+    var message = ['Lead magnet: Semafor marže zakázek (stavebnictví)',
       $('f-size').value && 'Velikost firmy: ' + $('f-size').value, utm.length && 'UTM: ' + utm.join(', '), 'Stránka: /semafor-marze/']
       .filter(Boolean).join(' | ');
     btn.disabled = true; btn.firstChild.textContent = 'Odesílám… ';
