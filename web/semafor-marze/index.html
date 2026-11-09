@@ -471,7 +471,11 @@ footer a{color:var(--soft)}
     }).then(function (r) { return r.json().catch(function () { return null; }).then(function (j) { return r.ok && j && j.success; }); })
       .catch(function () { return false; })
       .then(function (success) {
-        if (success) { location.href = '/semafor-marze/stahnout/'; return; }
+        if (success) {
+          var go = function () { location.href = '/semafor-marze/stahnout/'; };
+          if (window.fbq) { try { fbq('track', 'Lead', { content_name: 'Excel na hlídání marže' }); } catch (e) {} setTimeout(go, 400); } else go();
+          return;
+        }
         msg.textContent = 'Odeslání se nepovedlo. Zkuste to prosím znovu, nebo napište na info@modernikomunikace.com.';
         msg.classList.add('show'); btn.disabled = false; btn.firstChild.textContent = 'Stáhnout Excel zdarma ';
       });
