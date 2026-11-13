@@ -100,6 +100,11 @@ section{padding:7.5rem 0}
 h2{font-size:clamp(2rem,4.2vw,3.4rem);margin:1rem 0 1.4rem}
 .lead{font-size:1.18rem;color:var(--soft);max-width:44rem}
 .alt{background:var(--surf)}
+.vsl{padding:0 0 5.5rem;text-align:center}
+.vsl .eyebrow{margin-bottom:1.1rem}
+.vsl-box{width:min(860px,100%);margin:0 auto;border-radius:20px;overflow:hidden;border:1px solid var(--line);background:#000;aspect-ratio:16/9;box-shadow:0 24px 60px rgba(0,0,0,.35)}
+.vsl-box video{display:block;width:100%;height:100%;object-fit:cover;background:#000}
+.vsl .btn{margin-top:2rem}
 .reveal{opacity:1;transform:none}
 html.js .reveal{opacity:0;transform:translateY(22px);transition:opacity .8s cubic-bezier(.22,1,.36,1),transform .8s cubic-bezier(.22,1,.36,1)}
 html.js .reveal.in{opacity:1;transform:none}
@@ -265,6 +270,15 @@ footer a{color:var(--soft)}
         <div class="sem-f"><span>Odhad celkem<br><b class="bad">17,1&nbsp;%</b></span><span style="text-align:right">Dvě akce<br><b>v červeném</b></span></div>
       </div>
     </div>
+  </div>
+</section>
+
+<!-- VIDEO -->
+<section class="vsl" id="video">
+  <div class="wrap">
+    <p class="eyebrow">Video · 4 minuty</p>
+    <div class="vsl-box"><video controls playsinline preload="metadata" poster="vsl-poster.jpg" aria-label="Video: jak poznat ztrátovou akci včas"><source src="vsl.mp4" type="video/mp4">Váš prohlížeč video nepřehraje. <a href="vsl.mp4">Stáhnout video</a>.</video></div>
+    <a class="btn" href="#stahnout">Chci Excel na marži zdarma <span aria-hidden="true">→</span></a>
   </div>
 </section>
 
